@@ -64,19 +64,6 @@ resource existingAppInsights 'Microsoft.Insights/components@2020-02-02' existing
   name: appInsightsName
 }
 
-// --- AI / Cognitive ---
-resource existingOpenAI 'Microsoft.CognitiveServices/accounts@2023-05-01' existing = {
-  name: openAiName
-}
-
-resource existingAiDocIntelligence 'Microsoft.CognitiveServices/accounts@2023-05-01' existing = {
-  name: aiDocIntelligenceName
-}
-
-resource existingAiLanguage 'Microsoft.CognitiveServices/accounts@2023-05-01' existing = {
-  name: aiLanguageName
-}
-
 // --- Database ---
 resource existingPostgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2022-12-01' existing = {
   name: postgresServerName
@@ -113,46 +100,9 @@ resource storageAccountTags 'Microsoft.Resources/tags@2022-09-01' = {
 }
 
 // ---------------------------------------------------------------------------
-// OpenAI: Cognitive Services OpenAI User → Backend Function
+// OpenAI, Document Intelligence, Language tags applied via Azure CLI step
+// (bypasses Cognitive Services RP polling issue with Microsoft.Resources/tags)
 // ---------------------------------------------------------------------------
-resource openAITags 'Microsoft.Resources/tags@2022-09-01' = {
-  name: 'default'
-  scope: existingOpenAI
-  properties: {
-    tags: {
-      roleAssignments1: '${backendFuncPrincipalId} Cognitive Services OpenAI User'
-      ingress1: backendFunctionAppName
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Document Intelligence: Cognitive Services User → Backend Function
-// ---------------------------------------------------------------------------
-resource aiDocIntelligenceTags 'Microsoft.Resources/tags@2022-09-01' = {
-  name: 'default'
-  scope: existingAiDocIntelligence
-  properties: {
-    tags: {
-      roleAssignments1: '${backendFuncPrincipalId} Cognitive Services User'
-      ingress1: backendFunctionAppName
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Language: Cognitive Services User → Backend Function
-// ---------------------------------------------------------------------------
-resource aiLanguageTags 'Microsoft.Resources/tags@2022-09-01' = {
-  name: 'default'
-  scope: existingAiLanguage
-  properties: {
-    tags: {
-      roleAssignments1: '${backendFuncPrincipalId} Cognitive Services User'
-      ingress1: backendFunctionAppName
-    }
-  }
-}
 
 // ---------------------------------------------------------------------------
 // PostgreSQL: Ingress from Backend Function
