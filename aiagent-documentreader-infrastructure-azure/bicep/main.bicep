@@ -148,6 +148,7 @@ module openAi 'cognitive-service.json' = {
 // --------------- Content Filter ---------------
 module contentFilter 'cognitive-service-customfilter.json' = {
   name: 'content-filter'
+  dependsOn: [openAi]
   params: {
     name: contentFilterName
     connectedAiInstance: openAiName
