@@ -59,10 +59,6 @@ resource existingStorageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' e
   name: storageAccountName
 }
 
-resource existingKeyVault 'Microsoft.KeyVault/vaults@2023-02-01' existing = {
-  name: keyVaultName
-}
-
 // --- Monitoring ---
 resource existingAppInsights 'Microsoft.Insights/components@2020-02-02' existing = {
   name: appInsightsName
@@ -210,7 +206,6 @@ resource backendFunctionTags 'Microsoft.Resources/tags@2022-09-01' = {
 // =============================================================================
 module keyVaultOverride 'key-vault.json' = {
   name: 'key-vault-override'
-  dependsOn: [existingKeyVault]
   params: {
     vaultName: keyVaultName
     objectIdList: !empty(developerGroupObjectId) ? [
