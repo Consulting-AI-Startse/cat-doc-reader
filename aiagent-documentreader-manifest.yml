@@ -1,0 +1,140 @@
+# ==============================================================================
+# LTA Manifest — AI Agent Document Reader
+# ==============================================================================
+#
+# Architecture:
+#   - App Service (Frontend) → Function App (Backend) → AI Services + Data
+#   - Frontend talks to: Key Vault, App Insights, Backend Function
+#   - Backend talks to: Key Vault, App Insights, PostgreSQL, OpenAI,
+#                        Language, Doc Intelligence, Azure Blob Storage
+#
+# ==============================================================================
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PROJECT
+# ──────────────────────────────────────────────────────────────────────────────
+project:
+  name: aiagent-documentreader
+  environments: [dev, qa, prod]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# RESOURCES
+# ──────────────────────────────────────────────────────────────────────────────
+resources:
+
+  # ── Monitoring ──────────────────────────────────────────────────────────────
+  - name: log-analytics
+    type: log-analytics
+
+  - name: appinsights
+    type: app-insights
+    dependsOn: [log-analytics]
+
+  # ── Storage & Security ─────────────────────────────────────────────────────
+  - name: storage
+    type: storage-account
+
+  - name: keyvault
+    type: key-vault
+    accessPolicies: true
+    objectIdResources:
+      - frontend-appservice
+      - backend-function
+
+  # ── Compute ─────────────────────────────────────────────────────────────────
+  - name: frontend-appservice
+    type: app-service
+    appServicePlan: frontend
+    sku: P1V3
+
+  - name: backend-function
+    type: function-app
+    runtime: python
+    runtimeVersion: "3.11"
+    functionsRuntimeVersion: "~4"
+    appServicePlan: backend
+    sku: P1V3
+    dependsOn: [storage, appinsights]
+
+  # ── AI / Cognitive ──────────────────────────────────────────────────────────
+  - name: openai
+    type: openai
+    sku: S0
+
+  - name: content-filter
+    type: content-filter
+    connectedTo: openai
+
+  - name: ai-docintelligence
+    type: cognitive-service
+    kind: FormRecognizer
+    sku: S0
+
+  - name: ai-language
+    type: cognitive-service
+    kind: TextAnalytics
+    sku: S
+
+  # ── Database ────────────────────────────────────────────────────────────────
+  - name: postgresql-server
+    type: postgresql
+    sku: Standard_D2s_v3
+    storageSizeGB: 32
+    version: "15"
+    edition: GeneralPurpose
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CONNECTIONS
+# ──────────────────────────────────────────────────────────────────────────────
+connections:
+
+  # ── Frontend → Backend ──────────────────────────────────────────────────────
+  - from: frontend-appservice
+    to: backend-function
+    auth: managed-identity
+
+  # ── Frontend → Shared Infrastructure ────────────────────────────────────────
+  - from: frontend-appservice
+    to: keyvault
+    auth: managed-identity
+
+  - from: frontend-appservice
+    to: appinsights
+    auth: managed-identity
+    role: Monitoring Metrics Publisher
+
+  # ── Backend → AI Services ───────────────────────────────────────────────────
+  - from: backend-function
+    to: openai
+    auth: managed-identity
+    role: Cognitive Services OpenAI User
+
+  - from: backend-function
+    to: ai-docintelligence
+    auth: managed-identity
+    role: Cognitive Services User
+
+  - from: backend-function
+    to: ai-language
+    auth: managed-identity
+    role: Cognitive Services User
+
+  # ── Backend → Data ──────────────────────────────────────────────────────────
+  - from: backend-function
+    to: postgresql-server
+    auth: managed-identity
+
+  - from: backend-function
+    to: storage
+    auth: managed-identity
+    role: Storage Blob Data Contributor
+
+  # ── Backend → Shared Infrastructure ─────────────────────────────────────────
+  - from: backend-function
+    to: keyvault
+    auth: managed-identity
+
+  - from: backend-function
+    to: appinsights
+    auth: managed-identity
+    role: Monitoring Metrics Publisher
