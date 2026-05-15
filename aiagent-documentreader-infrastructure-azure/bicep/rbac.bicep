@@ -212,12 +212,15 @@ module keyVaultOverride 'key-vault.json' = {
   name: 'key-vault-override'
   params: {
     vaultName: keyVaultName
-    objectIdList: [
+    objectIdList: !empty(developerGroupObjectId) ? [
       frontendPrincipalId
       backendFuncPrincipalId
       developerGroupObjectId
+    ] : [
+      frontendPrincipalId
+      backendFuncPrincipalId
     ]
-    accessPolicies: [
+    accessPolicies: !empty(developerGroupObjectId) ? [
       {
         tenantId: tenant().tenantId
         objectId: developerGroupObjectId
@@ -227,7 +230,7 @@ module keyVaultOverride 'key-vault.json' = {
           certificates: [ 'All' ]
         }
       }
-    ]
+    ] : []
     tags: {
       ingress1: '${frontendAppServiceName}|${backendFunctionAppName}'
     }
