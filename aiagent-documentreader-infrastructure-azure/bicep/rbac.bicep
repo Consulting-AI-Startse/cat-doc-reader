@@ -210,6 +210,7 @@ resource backendFunctionTags 'Microsoft.Resources/tags@2022-09-01' = {
 // =============================================================================
 module keyVaultOverride 'key-vault.json' = {
   name: 'key-vault-override'
+  dependsOn: [existingKeyVault]
   params: {
     vaultName: keyVaultName
     objectIdList: !empty(developerGroupObjectId) ? [
