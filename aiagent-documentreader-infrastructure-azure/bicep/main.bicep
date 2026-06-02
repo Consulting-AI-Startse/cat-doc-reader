@@ -30,6 +30,7 @@ var appServicePlanBackendName     = '${prefix}-backend-appserviceplan'
 
 // App Services & Functions
 var appServiceFrontendName        = '${prefix}-frontend-appservice'
+var appServiceFastApiName         = '${prefix}-fastapi-appservice'
 var functionAppBackendName        = '${prefix}-backend-function'
 
 // Security (max 24 chars, must be globally unique)
@@ -108,6 +109,16 @@ module appServiceFrontend 'app-service.json' = {
   params: {
     appServiceName: appServiceFrontendName
     appServicePlanName: appServicePlanFrontendName
+  }
+}
+
+// --------------- FastAPI Server App Service ---------------
+module appServiceFastApi 'app-service.json' = {
+  name: 'app-service-fastapi'
+  dependsOn: [appServicePlanBackend]
+  params: {
+    appServiceName: appServiceFastApiName
+    appServicePlanName: appServicePlanBackendName
   }
 }
 

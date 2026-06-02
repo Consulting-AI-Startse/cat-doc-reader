@@ -20,6 +20,7 @@ var prefix = '${projectName}-${environment}'
 
 // Compute
 var frontendAppServiceName        = '${prefix}-frontend-appservice'
+var fastApiAppServiceName         = '${prefix}-fastapi-appservice'
 var backendFunctionAppName        = '${prefix}-backend-function'
 
 // AI / Cognitive
@@ -46,12 +47,17 @@ resource existingFrontendApp 'Microsoft.Web/sites@2022-09-01' existing = {
   name: frontendAppServiceName
 }
 
+resource existingFastApiApp 'Microsoft.Web/sites@2022-09-01' existing = {
+  name: fastApiAppServiceName
+}
+
 resource existingBackendFunction 'Microsoft.Web/sites@2022-09-01' existing = {
   name: backendFunctionAppName
 }
 
 // Principal IDs derived from existing resources
 var frontendPrincipalId       = existingFrontendApp.identity.principalId
+var fastApiPrincipalId        = existingFastApiApp.identity.principalId
 var backendFuncPrincipalId    = existingBackendFunction.identity.principalId
 
 // --- Storage & Security ---
@@ -81,20 +87,20 @@ resource appInsightsTags 'Microsoft.Resources/tags@2022-09-01' = {
   scope: existingAppInsights
   properties: {
     tags: {
-      roleAssignments1: '${frontendPrincipalId} Monitoring Metrics Publisher|${backendFuncPrincipalId} Monitoring Metrics Publisher'
+      roleAssignments1: '${frontendPrincipalId} Monitoring Metrics Publisher|${fastApiPrincipalId} Monitoring Metrics Publisher|${backendFuncPrincipalId} Monitoring Metrics Publisher'
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Storage Account: Storage Blob Data Contributor → Backend Function
+// Storage Account: Storage Blob Data Contributor → FastAPI Server, Backend Function
 // ---------------------------------------------------------------------------
 resource storageAccountTags 'Microsoft.Resources/tags@2022-09-01' = {
   name: 'default'
   scope: existingStorageAccount
   properties: {
     tags: {
-      roleAssignments1: '${backendFuncPrincipalId} Storage Blob Data Contributor'
+      roleAssignments1: '${fastApiPrincipalId} Storage Blob Data Contributor|${backendFuncPrincipalId} Storage Blob Data Contributor'
     }
   }
 }
@@ -105,14 +111,14 @@ resource storageAccountTags 'Microsoft.Resources/tags@2022-09-01' = {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// PostgreSQL: Ingress from Backend Function
+// PostgreSQL: Ingress from FastAPI Server and Backend Function
 // ---------------------------------------------------------------------------
 resource postgresServerTags 'Microsoft.Resources/tags@2022-09-01' = {
   name: 'default'
   scope: existingPostgresServer
   properties: {
     tags: {
-      ingress1: backendFunctionAppName
+      ingress1: '${fastApiAppServiceName}|${backendFunctionAppName}'
     }
   }
 }
@@ -122,15 +128,30 @@ resource postgresServerTags 'Microsoft.Resources/tags@2022-09-01' = {
 // =============================================================================
 
 // ---------------------------------------------------------------------------
-// Frontend App Service: Egress → Backend Function, Key Vault
+// Frontend App Service: Egress → FastAPI Server, Key Vault
 // ---------------------------------------------------------------------------
 resource frontendAppTags 'Microsoft.Resources/tags@2022-09-01' = {
   name: 'default'
   scope: existingFrontendApp
   properties: {
     tags: {
-      egress1: backendFunctionAppName
+      egress1: fastApiAppServiceName
       egress2: keyVaultName
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// FastAPI Server App Service: Egress → PostgreSQL, Storage, Key Vault
+// ---------------------------------------------------------------------------
+resource fastApiAppTags 'Microsoft.Resources/tags@2022-09-01' = {
+  name: 'default'
+  scope: existingFastApiApp
+  properties: {
+    tags: {
+      egress1: '${postgresServerName}|${storageAccountName}'
+      egress2: keyVaultName
+      ingress1: frontendAppServiceName
     }
   }
 }
@@ -145,8 +166,7 @@ resource backendFunctionTags 'Microsoft.Resources/tags@2022-09-01' = {
     tags: {
       egress1: '${openAiName}|${aiDocIntelligenceName}|${aiLanguageName}'
       egress2: postgresServerName
-      egress3: keyVaultName
-      ingress1: frontendAppServiceName
+      egress3: '${storageAccountName}|${keyVaultName}'
     }
   }
 }
@@ -160,10 +180,12 @@ module keyVaultOverride 'key-vault.json' = {
     vaultName: keyVaultName
     objectIdList: !empty(developerGroupObjectId) ? [
       frontendPrincipalId
+      fastApiPrincipalId
       backendFuncPrincipalId
       developerGroupObjectId
     ] : [
       frontendPrincipalId
+      fastApiPrincipalId
       backendFuncPrincipalId
     ]
     accessPolicies: !empty(developerGroupObjectId) ? [
@@ -178,7 +200,7 @@ module keyVaultOverride 'key-vault.json' = {
       }
     ] : []
     tags: {
-      ingress1: '${frontendAppServiceName}|${backendFunctionAppName}'
+      ingress1: '${frontendAppServiceName}|${fastApiAppServiceName}|${backendFunctionAppName}'
     }
   }
 }

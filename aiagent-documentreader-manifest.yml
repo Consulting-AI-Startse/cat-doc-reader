@@ -3,8 +3,12 @@
 # ==============================================================================
 #
 # Architecture:
-#   - App Service (Frontend) → Function App (Backend) → AI Services + Data
-#   - Frontend talks to: Key Vault, App Insights, Backend Function
+#   - App Service (Frontend) → App Service (FastAPI Server) → PostgreSQL + Blob Storage
+#   - FastAPI Server exposes data from PostgreSQL to the Frontend for invoice review/approval
+#   - FastAPI Server also handles Blob Storage uploads from the Frontend
+#   - Function App Worker (Backend) runs AI extraction (Doc Intelligence + OpenAI) independently
+#   - Frontend talks to: Key Vault, App Insights, FastAPI Server
+#   - FastAPI Server talks to: Key Vault, App Insights, PostgreSQL, Blob Storage
 #   - Backend talks to: Key Vault, App Insights, PostgreSQL, OpenAI,
 #                        Language, Doc Intelligence, Azure Blob Storage
 #
@@ -39,6 +43,7 @@ resources:
     accessPolicies: true
     objectIdResources:
       - frontend-appservice
+      - fastapi-appservice
       - backend-function
 
   # ── Compute ─────────────────────────────────────────────────────────────────
@@ -46,6 +51,12 @@ resources:
     type: app-service
     appServicePlan: frontend
     sku: P1V3
+
+  - name: fastapi-appservice
+    type: app-service
+    appServicePlan: backend
+    sku: P1V3
+    dependsOn: [appinsights, storage]
 
   - name: backend-function
     type: function-app
@@ -88,17 +99,37 @@ resources:
 # ──────────────────────────────────────────────────────────────────────────────
 connections:
 
-  # ── Frontend → Backend ──────────────────────────────────────────────────────
+  # ── Frontend → FastAPI Server ──────────────────────────────────────────────
   - from: frontend-appservice
-    to: backend-function
+    to: fastapi-appservice
     auth: managed-identity
 
-  # ── Frontend → Shared Infrastructure ────────────────────────────────────────
+  # ── Frontend → Shared Infrastructure ───────────────────────────────────────
   - from: frontend-appservice
     to: keyvault
     auth: managed-identity
 
   - from: frontend-appservice
+    to: appinsights
+    auth: managed-identity
+    role: Monitoring Metrics Publisher
+
+  # ── FastAPI Server → Data ─────────────────────────────────────────────
+  - from: fastapi-appservice
+    to: postgresql-server
+    auth: managed-identity
+
+  - from: fastapi-appservice
+    to: storage
+    auth: managed-identity
+    role: Storage Blob Data Contributor
+
+  # ── FastAPI Server → Shared Infrastructure ────────────────────────────────
+  - from: fastapi-appservice
+    to: keyvault
+    auth: managed-identity
+
+  - from: fastapi-appservice
     to: appinsights
     auth: managed-identity
     role: Monitoring Metrics Publisher
