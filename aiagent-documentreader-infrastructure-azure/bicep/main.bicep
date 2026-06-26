@@ -112,9 +112,6 @@ module appServiceFrontend 'app-service.json' = {
   params: {
     appServiceName: appServiceFrontendName
     appServicePlanName: appServicePlanFrontendName
-    appSettings: {
-      CLIENT_ID_FLASK: clientIdFlask
-    }
   }
 }
 
