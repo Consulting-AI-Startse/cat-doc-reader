@@ -146,7 +146,7 @@ resource fastApiAuthConfig 'Microsoft.Web/sites/config@2022-09-01' = if (!empty(
       azureActiveDirectory: {
         enabled: true
         registration: {
-          openIdIssuer: '${environment().authentication.loginEndpoint}${tenant().tenantId}/v2.0'
+          openIdIssuer: '${az.environment().authentication.loginEndpoint}${az.tenant().tenantId}/v2.0'
           clientId: clientIdFlask
           clientSecretSettingName: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET'
         }
