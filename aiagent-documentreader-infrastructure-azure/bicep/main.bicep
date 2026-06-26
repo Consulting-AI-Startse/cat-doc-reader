@@ -12,6 +12,9 @@ param environment string
 param developerGroupObjectId string = ''
 param developerGroupName string = ''
 
+// --------------- Authentication ---------------
+param clientIdFlask string = ''
+
 // ======================== Naming Convention ========================
 
 var prefix = '${projectName}-${environment}'
@@ -109,6 +112,9 @@ module appServiceFrontend 'app-service.json' = {
   params: {
     appServiceName: appServiceFrontendName
     appServicePlanName: appServicePlanFrontendName
+    appSettings: {
+      CLIENT_ID_FLASK: clientIdFlask
+    }
   }
 }
 
