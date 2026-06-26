@@ -125,6 +125,44 @@ module appServiceFastApi 'app-service.json' = {
   }
 }
 
+// --------------- FastAPI Auth Config (Azure AD Easy Auth) ---------------
+resource existingFastApiApp 'Microsoft.Web/sites@2022-09-01' existing = {
+  name: appServiceFastApiName
+}
+
+resource fastApiAuthConfig 'Microsoft.Web/sites/config@2022-09-01' = if (!empty(clientIdFlask)) {
+  parent: existingFastApiApp
+  name: 'authsettingsV2'
+  dependsOn: [appServiceFastApi, keyVault]
+  properties: {
+    platform: {
+      enabled: true
+    }
+    globalValidation: {
+      unauthenticatedClientAction: 'RedirectToLoginPage'
+      redirectToProvider: 'azureactivedirectory'
+    }
+    identityProviders: {
+      azureActiveDirectory: {
+        enabled: true
+        registration: {
+          openIdIssuer: 'https://login.microsoftonline.com/${tenant().tenantId}/v2.0'
+          clientId: clientIdFlask
+          clientSecretSettingName: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET'
+        }
+        login: {
+          loginParameters: ['response_type=code id_token', 'scope=openid profile email']
+        }
+      }
+    }
+    login: {
+      tokenStore: {
+        enabled: true
+      }
+    }
+  }
+}
+
 // --------------- Backend Function App ---------------
 module functionAppBackend 'functions.json' = {
   name: 'function-app-backend'
