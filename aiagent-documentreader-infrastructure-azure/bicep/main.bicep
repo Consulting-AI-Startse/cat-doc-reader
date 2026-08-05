@@ -139,7 +139,7 @@ resource fastApiAuthConfig 'Microsoft.Web/sites/config@2022-09-01' = if (!empty(
       enabled: true
     }
     globalValidation: {
-      unauthenticatedClientAction: 'RedirectToLoginPage'
+      unauthenticatedClientAction: 'AllowAnonymous'
       redirectToProvider: 'azureactivedirectory'
     }
     identityProviders: {
