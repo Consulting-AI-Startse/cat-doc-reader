@@ -245,3 +245,25 @@ module postgresServer 'postgresql-server.json' = {
     ] : []
   }
 }
+
+// --------------- RBAC & Network Configuration (Second Provision) ---------------
+module rbac 'rbac.bicep' = {
+  name: 'rbac-and-networking'
+  dependsOn: [
+    appServiceFrontend
+    appServiceFastApi
+    functionAppBackend
+    storageAccount
+    keyVault
+    appInsights
+    openAi
+    aiDocIntelligence
+    aiLanguage
+    postgresServer
+  ]
+  params: {
+    projectName: projectName
+    environment: environment
+    developerGroupObjectId: developerGroupObjectId
+  }
+}

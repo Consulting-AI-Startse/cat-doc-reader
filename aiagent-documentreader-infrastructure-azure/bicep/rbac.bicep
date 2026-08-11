@@ -35,6 +35,10 @@ var keyVaultName                  = take('${prefix}-kv-${uniqueString(resourceGr
 // Monitoring
 var appInsightsName               = '${prefix}-appinsights'
 
+// Role Definitions
+var cognitiveServicesUserRoleId = 'a97b65f3-24c7-4388-baec-2e87135dc908'
+var cognitiveServicesOpenAiUserRoleId = '5e0bd9bd-7b93-4f28-af87-19fc36ad61ae'
+
 // Database
 var postgresServerName            = '${prefix}-postgresql-server'
 
@@ -68,6 +72,19 @@ resource existingStorageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' e
 // --- Monitoring ---
 resource existingAppInsights 'Microsoft.Insights/components@2020-02-02' existing = {
   name: appInsightsName
+}
+
+// --- AI / Cognitive ---
+resource existingOpenAI 'Microsoft.CognitiveServices/accounts@2023-05-01' existing = {
+  name: openAiName
+}
+
+resource existingAiDocIntelligence 'Microsoft.CognitiveServices/accounts@2023-05-01' existing = {
+  name: aiDocIntelligenceName
+}
+
+resource existingAiLanguage 'Microsoft.CognitiveServices/accounts@2023-05-01' existing = {
+  name: aiLanguageName
 }
 
 // --- Database ---
@@ -106,9 +123,43 @@ resource storageAccountTags 'Microsoft.Resources/tags@2022-09-01' = {
 }
 
 // ---------------------------------------------------------------------------
-// OpenAI, Document Intelligence, Language tags applied via Azure CLI step
-// (bypasses Cognitive Services RP polling issue with Microsoft.Resources/tags)
+// OpenAI: Cognitive Services OpenAI User → Backend Function
 // ---------------------------------------------------------------------------
+resource backendFunctionOpenAiRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(existingOpenAI.id, backendFunctionAppName, cognitiveServicesOpenAiUserRoleId)
+  scope: existingOpenAI
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesOpenAiUserRoleId)
+    principalType: 'ServicePrincipal'
+    principalId: backendFuncPrincipalId
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Document Intelligence: Cognitive Services User → Backend Function
+// ---------------------------------------------------------------------------
+resource backendFunctionDocIntelligenceRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(existingAiDocIntelligence.id, backendFunctionAppName, cognitiveServicesUserRoleId)
+  scope: existingAiDocIntelligence
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesUserRoleId)
+    principalType: 'ServicePrincipal'
+    principalId: backendFuncPrincipalId
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Language Service: Cognitive Services User → Backend Function
+// ---------------------------------------------------------------------------
+resource backendFunctionLanguageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(existingAiLanguage.id, backendFunctionAppName, cognitiveServicesUserRoleId)
+  scope: existingAiLanguage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesUserRoleId)
+    principalType: 'ServicePrincipal'
+    principalId: backendFuncPrincipalId
+  }
+}
 
 // ---------------------------------------------------------------------------
 // PostgreSQL: Ingress from FastAPI Server and Backend Function
