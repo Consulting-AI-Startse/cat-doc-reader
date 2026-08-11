@@ -75,12 +75,67 @@ resource existingPostgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2022-
   name: postgresServerName
 }
 
+// --- AI / Cognitive Services ---
+resource existingOpenAi 'Microsoft.CognitiveServices/accounts@2023-05-01' existing = {
+  name: openAiName
+}
+
+resource existingDocIntelligence 'Microsoft.CognitiveServices/accounts@2023-05-01' existing = {
+  name: aiDocIntelligenceName
+}
+
+resource existingLanguage 'Microsoft.CognitiveServices/accounts@2023-05-01' existing = {
+  name: aiLanguageName
+}
+
 // =============================================================================
 // RBAC ASSIGNMENTS & NETWORK TAGS
 // =============================================================================
 
 // ---------------------------------------------------------------------------
-// App Insights: Monitoring Metrics Publisher → Frontend, Backend Function
+// OpenAI: Cognitive Services OpenAI User → Backend Function App
+// ---------------------------------------------------------------------------
+resource openAITags 'Microsoft.Resources/tags@2022-09-01' = {
+  name: 'default'
+  scope: existingOpenAi
+  properties: {
+    tags: {
+      roleAssignments1: '${backendFuncPrincipalId} Cognitive Services OpenAI User'
+      ingress1: backendFunctionAppName
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Document Intelligence: Cognitive Services User → Backend Function App
+// ---------------------------------------------------------------------------
+resource aiDocIntelligenceTags 'Microsoft.Resources/tags@2022-09-01' = {
+  name: 'default'
+  scope: existingDocIntelligence
+  properties: {
+    tags: {
+      roleAssignments1: '${backendFuncPrincipalId} Cognitive Services User'
+      ingress1: backendFunctionAppName
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Language: Cognitive Services User → Backend Function App
+// ---------------------------------------------------------------------------
+resource aiLanguageTags 'Microsoft.Resources/tags@2022-09-01' = {
+  name: 'default'
+  scope: existingLanguage
+  properties: {
+    tags: {
+      roleAssignments1: '${backendFuncPrincipalId} Cognitive Services User'
+      ingress1: backendFunctionAppName
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// App Insights: Monitoring Metrics Publisher → Frontend, FastAPI, Backend Function
 // ---------------------------------------------------------------------------
 resource appInsightsTags 'Microsoft.Resources/tags@2022-09-01' = {
   name: 'default'
@@ -104,11 +159,6 @@ resource storageAccountTags 'Microsoft.Resources/tags@2022-09-01' = {
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// OpenAI, Document Intelligence, Language: Role assignments applied via
-// Azure CLI step with elevated permissions (bypasses Bicep permission issues)
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // PostgreSQL: Ingress from FastAPI Server and Backend Function
