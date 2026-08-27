@@ -1,0 +1,8 @@
+azure-functions
+sqlalchemy>=2.0
+psycopg[binary]
+pydantic-settings
+azure-storage-blob
+azure-identity
+openai>=1.40
+azure-ai-documentintelligence>=1.0.0

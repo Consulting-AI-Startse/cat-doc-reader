@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+gunicorn
+python-multipart
+sqlalchemy>=2.0
+alembic
+psycopg[binary]
+pydantic-settings
+azure-storage-blob
+azure-identity

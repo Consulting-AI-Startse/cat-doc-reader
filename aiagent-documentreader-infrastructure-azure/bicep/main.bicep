@@ -125,15 +125,15 @@ module appServiceFastApi 'app-service.json' = {
   }
 }
 
-// --------------- FastAPI Auth Config (Azure AD Easy Auth) ---------------
-resource existingFastApiApp 'Microsoft.Web/sites@2022-09-01' existing = {
-  name: appServiceFastApiName
+// --------------- Frontend Auth Config (Azure AD Easy Auth) ---------------
+resource existingFrontendAppForAuth 'Microsoft.Web/sites@2022-09-01' existing = {
+  name: appServiceFrontendName
 }
 
-resource fastApiAuthConfig 'Microsoft.Web/sites/config@2022-09-01' = if (!empty(clientIdFlask)) {
-  parent: existingFastApiApp
+resource frontendAuthConfig 'Microsoft.Web/sites/config@2022-09-01' = if (!empty(clientIdFlask)) {
+  parent: existingFrontendAppForAuth
   name: 'authsettingsV2'
-  dependsOn: [appServiceFastApi, keyVault]
+  dependsOn: [appServiceFrontend, keyVault]
   properties: {
     platform: {
       enabled: true
