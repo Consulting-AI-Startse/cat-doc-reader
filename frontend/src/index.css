@@ -1,0 +1,25 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
+:root {
+  --cat-yellow: #ffcd11;
+  --cat-black: #1a1a1a;
+}
+
+body {
+  font-family: "Inter Variable", Inter, system-ui, sans-serif;
+  background: #fafafa;
+  color: #18181b;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code,
+pre,
+.font-mono,
+.tabular {
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}

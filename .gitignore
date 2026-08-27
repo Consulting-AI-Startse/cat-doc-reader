@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Node / frontend
+node_modules/
+dist/
+*.local
+
+# Segredos / config local.
+# .env.example e .env.production SAO versionados: as negacoes abaixo sao o que
+# faz isso funcionar -- so ".env*" ignoraria os dois junto com o resto.
+.env
+.env.*
+!.env.example
+!.env.production
+local.settings.json
+
+# Empacotamento
+*.zip
+
+# shared vendorizado por scripts/build; a fonte unica e shared/shared/
+backend/shared/
+function/shared/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Metadata do Windows (download via WSL/Explorer)
+*:Zone.Identifier
+
+# limpeza temporaria
+_to_delete/

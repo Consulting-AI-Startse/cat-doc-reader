@@ -1,0 +1,23 @@
+[project]
+name = "cat-doc-reader-function"
+version = "0.1.0"
+description = "CAT Document Reader - function (worker de IA, Azure Functions)"
+requires-python = ">=3.14"
+dependencies = [
+    "azure-functions",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]",
+    "pydantic-settings",
+    "azure-storage-blob",
+    "azure-identity",
+    "shared",
+]
+
+[tool.uv.sources]
+shared = { path = "../shared", editable = true }
+
+# Indice de pacotes (Artifactory/JFrog no ambiente da CAT): mesma ideia do backend.
+# [[tool.uv.index]]
+# name = "cat-artifactory"
+# url = "https://<org>.jfrog.io/artifactory/api/pypi/<repo-pypi>/simple"
+# default = true
