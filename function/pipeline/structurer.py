@@ -10,8 +10,13 @@ logger = logging.getLogger("structurer")
 TOLERANCE_ABS = 0.02
 TOLERANCE_REL = 0.005
 
-# Part numbers da Caterpillar sao 7 digitos. "0V3456" e "I/C Material" nao sao PN.
-PART_NUMBER_RE = re.compile(r"^\d{7}$")
+# Part number CAT: prefixo de 3 alfanumericos com hifen opcional
+# ('463-8344', '6511308') ou de 2 SEMPRE com hifen ('5P-1465', '7G-5837').
+# O hifen no caso curto e o que separa um part number real da marcacao de
+# end use '0V3456', que tem a mesma forma sem hifen.
+PART_NUMBER_RE = re.compile(r"^(?:[0-9A-Z]{3}-?[0-9]{4}|[0-9A-Z]{2}-[0-9]{4})$")
+# Codigo qualquer: nao e part number CAT, mas tambem nao e prosa.
+CODE_RE = re.compile(r"^[0-9A-Z][0-9A-Z\-/._]{2,29}$")
 CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -39,25 +44,33 @@ A document may contain MULTIPLE invoices; each invoice has MULTIPLE part-number 
 Return ONLY JSON in exactly this shape:
 
 {"invoices": [{"invoice_number", "invoice_number_source", "invoice_date" (YYYY-MM-DD),
-"currency", "freight", "total", "line_items": [{"part_number", "description",
+"currency", "freight", "packaging_cost", "total", "line_items": [{"part_number", "description",
 "quantity", "unit_price", "amount", "purchase_order", "incoterm",
 "country_of_origin", "domestic_freight", "packaging", "exporter", "supplier",
 "manufacturer"}]}], "confidence": 0..1}
 
 HARD RULES — these are the errors that have actually occurred:
 
-1. INVOICE NUMBER. Take it from the field labelled "CAT Invoice#" and nowhere else.
-   These are NOT the invoice number, even though they look like one:
-   "Number/Date", "CO Invoice Number", "Delivery note no./Date", "Order number/Date",
-   "CAT Order number", "Purchase Order Number", and the PDF filename.
-   In "invoice_number_source" report the literal label you actually read it from.
-   If you could not find "CAT Invoice#", say so there — do not claim you used it.
+1. INVOICE NUMBER. Use the number the DOCUMENT gives as its own invoice
+   number. Accept any of these labels: "Invoice Number", "Invoice No.",
+   "Commercial Invoice Nr.", "Fattura", "Faktura", "Facture", and on
+   Caterpillar intercompany invoices "CAT Invoice#". Copy it exactly as
+   printed, including spaces and separators.
+   These are NOT the invoice number: "Delivery note no./Date",
+   "Order number/Date", "CAT Order number", "Purchase Order Number",
+   "Customs Reference Nr.", "CO Invoice Number", "Number/Date", and the
+   PDF filename.
+   In "invoice_number_source" report the literal label you read it from.
+   If the document carries no invoice-number label at all, return null and
+   say so there. Do not take it from the filename.
 
-2. PART NUMBERS. A part_number must appear literally in the document as a part
-   number and is 7 digits. Never construct one. If a value is a description
-   fragment, a marking, or an end-use note (for example "I/C Material END USE:"
-   or "END USE: CAPTIVE ENGINE"), it is not a part number and must NOT become a
-   line item at all.
+2. PART NUMBERS. Copy the part number EXACTLY as the document prints it,
+   character for character, including hyphens: "463-8344" stays "463-8344",
+   "5P-1465" stays "5P-1465". Caterpillar prints both the hyphenated and the
+   plain form; reproduce whichever is on the page. Never construct, pad or
+   reformat one. If a line's part number is a description fragment or an
+   end-use note (for example "I/C Material" or "0V3456 END USE:"), still
+   return the line, and put the text you read in "part_number".
 
 3. PRICES. amount = quantity x unit_price. The per-unit price goes in
    "unit_price" and never in "amount". If the document shows a quantity and an
@@ -66,6 +79,11 @@ HARD RULES — these are the errors that have actually occurred:
 4. FREIGHT. Report freight ONCE, at invoice level, in "freight". Do not repeat the
    invoice freight on every line. Use "domestic_freight" on a line only when the
    document itemises freight for that specific line.
+
+   Put a packaging or crating CHARGE in "packaging_cost", as a number, when the
+   document bills one ("plus package", "packing charge", "embalagem"). Report it
+   ONCE, at invoice level. "packaging" is a different field and stays the
+   physical description of the packing ("1 PALLET").
 
 5. TOTAL. "total" is the invoice total as printed on the document, including
    freight. Read it; do not compute it.
@@ -106,26 +124,100 @@ def _s(v) -> str | None:
 
 
 def _num(v):
-    """Converte para float aceitando '124,285.98'. Devolve None se nao der."""
+    """Converte para float aceitando '124,285.98' e '124.285,98'.
+
+    O corpus tem os dois formatos: fornecedores dos EUA imprimem
+    '29,579.82' e os europeus '6.398,88'. Decide pelo separador que
+    aparece POR ULTIMO -- esse e o decimal.
+    """
     if v is None:
         return None
     if isinstance(v, (int, float)):
         return float(v)
-    t = str(v).strip().replace(" ", "")
+    t = str(v).strip().replace(" ", "").replace("\u00a0", "")
     if not t:
         return None
-    for symbol in ("USD", "EUR", "BRL", "$", "R$", "€"):
+    for symbol in ("USD", "EUR", "BRL", "GBP", "SEK", "TRY", "$", "R$", "€"):
         t = t.replace(symbol, "")
-    if "," in t and "." in t:
-        t = t.replace(",", "")
-    elif t.count(",") == 1 and len(t.split(",")[1]) in (1, 2):
-        t = t.replace(",", ".")
-    else:
-        t = t.replace(",", "")
+    negative = t.startswith("-") or (t.startswith("(") and t.endswith(")"))
+    t = t.strip("()-")
+
+    last_comma, last_dot = t.rfind(","), t.rfind(".")
+    if last_comma > -1 and last_dot > -1:
+        if last_comma > last_dot:          # 6.398,88 -> decimal e a virgula
+            t = t.replace(".", "").replace(",", ".")
+        else:                              # 29,579.82 -> decimal e o ponto
+            t = t.replace(",", "")
+    elif last_comma > -1:
+        # Uma virgula so: decimal se sobrarem 1 ou 2 casas, senao milhar.
+        t = t.replace(",", "." if len(t) - last_comma - 1 in (1, 2) else "")
+    elif last_dot > -1 and len(t) - last_dot - 1 == 3 and len(t.replace(".", "")) > 3:
+        # 1.234 sem centavos e milhar europeu. '108.08' tem 2 casas, nao entra.
+        t = t.replace(".", "")
+
     try:
-        return float(t)
+        value = float(t)
     except ValueError:
         return None
+    return -value if negative else value
+
+def _classify_part_number(pn, content: str):
+    """(impresso, normalizado, status, aviso). Nunca descarta a linha.
+
+    'impresso' sai como esta no documento -- e o que permite rastrear o valor.
+    'normalizado' e a forma sem hifen, que e o formato da coluna Material do
+    gabarito ('364-9717' -> '3649717').
+    """
+    content = content or ""
+    if pn is None or not str(pn).strip():
+        return None, None, "missing", "part_number ausente"
+
+    text = str(pn).strip()
+    if PART_NUMBER_RE.match(text):
+        normalised = text.replace("-", "")
+        if text in content:
+            return text, normalised, "cat", None
+        # Formato certo e ausente do texto: o modelo pode ter reformatado o
+        # numero. Nao reescrevemos -- tanto '463-8344' quanto '6637238' sao
+        # formas legitimas no mesmo documento, e o normalizado ja esta certo.
+        return text, normalised, "not_printed", (
+            "part_number '%s' tem formato CAT mas nao aparece no texto" % text
+        )
+
+    if CODE_RE.match(text):
+        return text, None, "other_code", (
+            "part_number '%s' nao tem formato CAT; mantido como codigo do fornecedor" % text
+        )
+    return text, None, "not_a_code", "part_number '%s' nao tem forma de codigo" % text
+
+
+def _landed(kept: list, extra):
+    """Rateia encargos de nivel de fatura por unidade. Nao sobrescreve nada.
+
+    O cliente soma a embalagem ao preco unitario: na fatura CD970373103 sao
+    90 x 388,46 = 34.961,40 mais 603,00 de embalagem, e o gabarito pede
+    395,16 e 35.564,40 -- ou seja 603/90 por unidade. So dois documentos de
+    28 trazem esse encargo, entao isto e um ramo condicional, nao uma regra.
+    O divisor (unidades, peso ou valor) ainda precisa de confirmacao do
+    cliente; com uma linha unica os tres dao o mesmo resultado.
+    """
+    total_qty = 0.0
+    for li in kept:
+        q = _num(li.get("quantity"))
+        if q:
+            total_qty += q
+    if not extra or total_qty <= 0:
+        return None
+    per_unit = extra / total_qty
+    for li in kept:
+        unit = _num(li.get("unit_price"))
+        qty = _num(li.get("quantity"))
+        if unit is None:
+            continue
+        li["unit_price_landed"] = "%.2f" % (unit + per_unit)
+        if qty is not None:
+            li["amount_landed"] = "%.2f" % ((unit + per_unit) * qty)
+    return per_unit
 
 
 def _close(a, b) -> bool:
@@ -200,13 +292,12 @@ class AzureOpenAIStructurer(LLMStructurer):
     def structure(self, extraction: dict[str, Any]) -> dict[str, Any]:
         content = extraction.get("content") or ""
 
-        # invoice_number do pre-pass fica fora: contamina a resposta do modelo.
-        prepass = {
-            k: v for k, v in extraction.items() if k != "content"
-        }
-        for inv in prepass.get("invoices") or []:
+        prepass = {"invoices": []}
+        for inv in extraction.get("invoices") or []:
             if isinstance(inv, dict):
+                inv = dict(inv)
                 inv.pop("invoice_number", None)
+                prepass["invoices"].append(inv)
 
         user = _USER_TEMPLATE.format(
             prepass=json.dumps(prepass, ensure_ascii=False, default=str),
@@ -221,28 +312,36 @@ class AzureOpenAIStructurer(LLMStructurer):
             ],
             response_format={"type": "json_object"},
             temperature=0,
-            max_tokens=8000,
+            max_tokens=16000,
         )
 
         payload = json.loads(response.choices[0].message.content or "{}")
         numbers, note = _cat_invoice_numbers(content)
-        return _normalise(payload, extraction.get("confidence"), numbers, note)
+        return _normalise(payload, extraction.get("confidence"), numbers, note, content)
 
 
-def _check_lines(tag: str, raw_lines: list):
-    """Descarta linhas sem PN valido e confere a aritmetica das que sobram."""
+def _check_lines(tag: str, raw_lines: list, content: str):
+    """Confere PN e aritmetica. Marca o que esta errado e mantem TODA linha.
+
+    Descartar linha destruia dados: '674-8657' e part number legitimo e nao
+    casa com sete digitos puros. Quem revisa precisa ver a linha e o aviso.
+    """
     kept = []
     issues = []
     running = 0.0
 
     for n, li in enumerate(raw_lines):
-        pn = li.get("part_number")
-        if pn is None or not PART_NUMBER_RE.match(str(pn).strip()):
-            issues.append(
-                "%s.line[%d]: descartada, part_number '%s' nao tem formato de PN"
-                % (tag, n, pn)
-            )
-            continue
+        printed, normalised, status, note = _classify_part_number(
+            li.get("part_number"), content
+        )
+        li = dict(
+            li,
+            part_number=printed,
+            part_number_normalised=normalised,
+            part_number_status=status,
+        )
+        if note:
+            issues.append("%s.line[%d]: %s" % (tag, n, note))
 
         qty = _num(li.get("quantity"))
         unit = _num(li.get("unit_price"))
@@ -266,13 +365,18 @@ def _check_lines(tag: str, raw_lines: list):
     return kept, issues, running
 
 
-def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None, cat_note=None) -> dict[str, Any]:
+def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
+               cat_note=None, content: str = "") -> dict[str, Any]:
     """Forca a saida do modelo no contrato do structurer e valida o que der.
 
-    O numero da invoice vem do texto ('CAT Invoice#') quando conseguimos ler --
-    o modelo declara essa origem mesmo quando usou outro campo. O total gravado
-    e o total impresso no documento; soma das linhas + frete e conferencia, nao
-    fonte.
+    O numero da invoice e o do proprio documento: 10 das 28 faturas do corpus
+    nao tem 'CAT Invoice#', e o gabarito do cliente pede o numero do
+    fornecedor. Quando um 'CAT Invoice#' existe no texto ele prevalece, porque
+    o modelo ja declarou essa origem tendo usado outro campo.
+
+    O total gravado e o total impresso no documento; soma das linhas + frete e
+    conferencia, nao fonte. Encargos de nivel de fatura sao rateados em
+    unit_price_landed, sem tocar em unit_price.
     """
     issues = []
     entries = [i for i in (payload.get("invoices") or []) if isinstance(i, dict)]
@@ -301,7 +405,7 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None, ca
         tag = "invoice[%d]" % index
 
         raw_lines = [li for li in (inv.get("line_items") or []) if isinstance(li, dict)]
-        kept, line_issues, running = _check_lines(tag, raw_lines)
+        kept, line_issues, running = _check_lines(tag, raw_lines, content)
         issues.extend(line_issues)
 
         number = inv.get("invoice_number")
@@ -340,14 +444,28 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None, ca
                     % (tag, reported, computed)
                 )
 
+        packaging_cost = _num(inv.get("packaging_cost"))
+        extra = (packaging_cost or 0.0) + (freight or 0.0)
+        per_unit = _landed(kept, extra)
+        if per_unit:
+            issues.append(
+                "%s: encargos %.2f rateados a %.4f por unidade em "
+                "unit_price_landed (unit_price segue como impresso)"
+                % (tag, extra, per_unit)
+            )
+
         line_items = []
         for li in kept:
             line_items.append({
                 "part_number": _s(li.get("part_number")),
+                "part_number_normalised": li.get("part_number_normalised"),
+                "part_number_status": li.get("part_number_status"),
                 "description": li.get("description"),
                 "quantity": _s(li.get("quantity")),
                 "unit_price": _s(li.get("unit_price")),
+                "unit_price_landed": li.get("unit_price_landed"),
                 "amount": _s(li.get("amount")),
+                "amount_landed": li.get("amount_landed"),
                 "purchase_order": li.get("purchase_order"),
                 "incoterm": li.get("incoterm"),
                 "country_of_origin": li.get("country_of_origin"),
@@ -362,6 +480,10 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None, ca
             "invoice_number": number,
             "invoice_date": inv.get("invoice_date"),
             "currency": inv.get("currency"),
+            # Emitidos para que unit_price_landed seja auditavel: sem eles nao
+            # se sabe de que encargo veio o rateio.
+            "freight": _s(inv.get("freight")),
+            "packaging_cost": _s(inv.get("packaging_cost")),
             "total": total,
             "line_items": line_items,
         })

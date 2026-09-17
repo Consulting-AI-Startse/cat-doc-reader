@@ -17,7 +17,7 @@ from shared.models import (
 )
 from shared.storage import BlobStorage, get_blob_storage
 
-from pipeline.extractor import DocumentExtractor, MockExtractor
+from pipeline.extractor import DocumentExtractor, MockExtractor, tables_summary
 from pipeline.structurer import LLMStructurer, MockStructurer
 
 CONFIDENCE_THRESHOLD = 0.90
@@ -30,6 +30,7 @@ def build_extractor() -> DocumentExtractor:
         return DocumentIntelligenceExtractor(
             endpoint=settings.azure_docintel_endpoint,
             key=settings.azure_docintel_key or None,
+            high_resolution=settings.azure_docintel_high_res,
         )
     return MockExtractor()
 
@@ -115,8 +116,11 @@ def process_document(
 
         confidence = result.get("confidence")
         doc.extraction_confidence = confidence
+        stored = dict(extraction)
+        if stored.get("tables"):
+            stored["tables"] = tables_summary(stored["tables"])
         doc.raw_extraction = dict(
-            extraction, structured=result, validation=result.get("validation")
+            stored, structured=result, validation=result.get("validation")
         )
         doc.processed_at = datetime.now(timezone.utc)
 
@@ -145,7 +149,27 @@ def process_document(
                 payload={"error": str(exc)},
             )
         )
-    db.commit()
+    try:
+        db.commit()
+    except Exception as exc:    
+        db.rollback()
+        doc = db.get(Document, document_id)
+        if doc is not None:
+            doc.status = DocumentStatus.error
+            doc.error_message = f"falha ao gravar no banco: {exc}"
+            db.add(
+                DocumentEvent(
+                    document_id=doc.id,
+                    event_type="error",
+                    actor="worker",
+                    payload={"error": str(exc)},
+                )
+            )
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
     db.refresh(doc)
     return doc
 
