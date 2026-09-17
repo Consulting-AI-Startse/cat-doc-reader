@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     use_real_services: bool = False
     azure_docintel_endpoint: str = ""
     azure_docintel_key: str = ""
+    azure_docintel_high_res: bool = True
     azure_openai_endpoint: str = ""
     azure_openai_key: str = ""
     azure_openai_deployment: str = "gpt-4o"
