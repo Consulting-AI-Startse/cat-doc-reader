@@ -21,7 +21,7 @@ $ROOT     = $PSScriptRoot
 $PG       = "$env:LOCALAPPDATA\pgsql\pgsql\bin"
 $PGDATA   = "$env:USERPROFILE\pgdata"
 $AZURITE  = "$env:USERPROFILE\azurite-data"
-$NOPROXY  = "localhost,https://urldefense.com/v3/__http://127.0.0.1__;!!FtR4BK4x7WL3xYs!7eSSCyFCjijlvTkq-nDu909aQ9KdSXixKzvq48ylXTbbOengh8CYIN7SlKKLdmZHwzuwWFqZehJcztifYXKW$ ,::1"
+$NOPROXY  = "localhost,127.0.0.1,::1"
 
 Write-Host "=== CAT Document Reader - subindo ambiente local ===" -ForegroundColor Cyan
 Write-Host "Raiz do projeto: $ROOT`n"
@@ -62,7 +62,7 @@ if ($Fresh) {
 }
 
 # --- 2. Azurite (Blob + Queue) ---
-# 'azurite' (nao 'azurite-blob'): o https://urldefense.com/v3/__http://function_app.py__;!!FtR4BK4x7WL3xYs!7eSSCyFCjijlvTkq-nDu909aQ9KdSXixKzvq48ylXTbbOengh8CYIN7SlKKLdmZHwzuwWFqZehJczjGszgg9$  usa queue_output/queue_trigger,
+# 'azurite' (nao 'azurite-blob'): o function_app.py usa queue_output/queue_trigger,
 # que precisam do endpoint de Queue (10001) alem do de Blob (10000). Com azurite-blob
 # sozinho os bindings de fila nao conectam. Se -CleanBlob for passado, limpa o
 # diretorio de dados (resolve o crash de GC por dados corrompidos).
@@ -73,7 +73,7 @@ if ($CleanBlob) {
     New-Item -ItemType Directory -Force $AZURITE | Out-Null
 }
 Start-Service-Window "Azurite" $ROOT `
-    "azurite --blobHost https://urldefense.com/v3/__http://127.0.0.1__;!!FtR4BK4x7WL3xYs!7eSSCyFCjijlvTkq-nDu909aQ9KdSXixKzvq48ylXTbbOengh8CYIN7SlKKLdmZHwzuwWFqZehJcztifYXKW$  --blobPort 10000 --queueHost https://urldefense.com/v3/__http://127.0.0.1__;!!FtR4BK4x7WL3xYs!7eSSCyFCjijlvTkq-nDu909aQ9KdSXixKzvq48ylXTbbOengh8CYIN7SlKKLdmZHwzuwWFqZehJcztifYXKW$  --queuePort 10001 --location '$AZURITE' --skipApiVersionCheck"
+    "azurite --blobHost 127.0.0.1 --blobPort 10000 --queueHost 127.0.0.1 --queuePort 10001 --location '$AZURITE' --skipApiVersionCheck"
 Start-Sleep -Seconds 3
 
 # --- 3. Function (worker de IA) ---
@@ -97,9 +97,9 @@ Start-Service-Window "Frontend" "$ROOT\frontend" `
 Start-Sleep -Seconds 3
 
 Write-Host "`n=== Tudo no ar! ===" -ForegroundColor Cyan
-Write-Host "Frontend:  https://urldefense.com/v3/__http://localhost:5173__;!!FtR4BK4x7WL3xYs!7eSSCyFCjijlvTkq-nDu909aQ9KdSXixKzvq48ylXTbbOengh8CYIN7SlKKLdmZHwzuwWFqZehJczqXb59YB$ "
-Write-Host "Backend:   https://urldefense.com/v3/__http://localhost:8000/health__;!!FtR4BK4x7WL3xYs!7eSSCyFCjijlvTkq-nDu909aQ9KdSXixKzvq48ylXTbbOengh8CYIN7SlKKLdmZHwzuwWFqZehJczvjA_WV9$ "
-Write-Host "Function:  https://urldefense.com/v3/__http://localhost:7071__;!!FtR4BK4x7WL3xYs!7eSSCyFCjijlvTkq-nDu909aQ9KdSXixKzvq48ylXTbbOengh8CYIN7SlKKLdmZHwzuwWFqZehJczi83_oKW$ "
+Write-Host "Frontend:  http://localhost:5173"
+Write-Host "Backend:   http://localhost:8000/health"
+Write-Host "Function:  http://localhost:7071"
 Write-Host "`nCada servico esta em sua propria janela (Azurite, Function, Backend, Frontend)."
 Write-Host "Se o Azurite crashar (erro de GC):     .\start-local.ps1 -CleanBlob"
 Write-Host "Para resetar tudo (blob + banco):      .\start-local.ps1 -Fresh"

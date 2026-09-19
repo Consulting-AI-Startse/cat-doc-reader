@@ -1,6 +1,6 @@
 """Confere _num e PART_NUMBER_RE contra os valores reais das 28 faturas.
 
-Rode de dentro de function\\:  & $PY ..\\https://urldefense.com/v3/__http://check_rules.py__;!!FtR4BK4x7WL3xYs!4k9_oz3Ij1V5ECcXyLRLrzfXiCz4-HZoCutyUSNYev1VjWO0BwjoLR_hqPuMQ2nMD8HWdzg1DWNYHXjyMeyv$ 
+Rode de dentro de function\\:  & $PY ..\\check_rules.py
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "function"))

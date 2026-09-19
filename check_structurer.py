@@ -1,7 +1,7 @@
-"""Confere o structurer contra o gabarito do cliente, offline.
+r"""Confere o structurer contra o gabarito do cliente, offline.
 
 Precisa de raw-civ-cap.json em Downloads (a ultima extracao do CIV).
-Rode da raiz do repo:  & .\function\.venv\Scripts\python.exe .\https://urldefense.com/v3/__http://check_structurer.py__;!!FtR4BK4x7WL3xYs!92yTvYa3cz5vgDIujpucKWIY_17e7U85RRd8GpdnUfn06IuYedcNN-wM077T9vyVd44N14SmiaN9TBwGDfjO$ 
+Rode da raiz do repo:  & .\function\.venv\Scripts\python.exe .\check_structurer.py
 """
 import json, os, re, sys
 

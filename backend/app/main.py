@@ -11,6 +11,7 @@ from shared.config import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Garante o container de blobs no boot (idempotente; no-op no Azure).
     get_storage().ensure_container()
     yield
 
