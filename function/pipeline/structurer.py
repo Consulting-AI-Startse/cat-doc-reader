@@ -17,6 +17,9 @@ TOLERANCE_REL = 0.005
 PART_NUMBER_RE = re.compile(r"^(?:[0-9A-Z]{3}-?[0-9]{4}|[0-9A-Z]{2}-[0-9]{4})$")
 # Codigo qualquer: nao e part number CAT, mas tambem nao e prosa.
 CODE_RE = re.compile(r"^[0-9A-Z][0-9A-Z\-/._]{2,29}$")
+# Sufixo de revisao/planta que a Caterpillar imprime junto do part number:
+# '663-7238~00', '6064986-07', '364-9717/01'. Nao faz parte do numero.
+PART_NUMBER_SUFFIX_RE = re.compile(r"^(?P<base>.+?)(?P<suffix>[~/][0-9A-Z]{1,3}|-[0-9]{2})$")
 CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -161,34 +164,52 @@ def _num(v):
         return None
     return -value if negative else value
 
+def _split_part_number(text: str):
+    """(base, sufixo). So separa se o que sobra for part number valido.
+
+    A guarda importa: '463-8344' casa inteiro na primeira linha e nunca chega
+    ao corte, senao viraria '463-83'.
+    """
+    if PART_NUMBER_RE.match(text):
+        return text, None
+    m = PART_NUMBER_SUFFIX_RE.match(text)
+    if m and PART_NUMBER_RE.match(m.group("base")):
+        return m.group("base"), m.group("suffix")
+    return text, None
+
+
 def _classify_part_number(pn, content: str):
-    """(impresso, normalizado, status, aviso). Nunca descarta a linha.
+    """(impresso, normalizado, sufixo, status, aviso). Nunca descarta a linha.
 
     'impresso' sai como esta no documento -- e o que permite rastrear o valor.
-    'normalizado' e a forma sem hifen, que e o formato da coluna Material do
-    gabarito ('364-9717' -> '3649717').
+    'normalizado' e a forma sem hifen nem sufixo, que e o formato da coluna
+    Material do gabarito ('663-7238~00' -> '6637238').
     """
     content = content or ""
     if pn is None or not str(pn).strip():
-        return None, None, "missing", "part_number ausente"
+        return None, None, None, "missing", "part_number ausente"
 
     text = str(pn).strip()
-    if PART_NUMBER_RE.match(text):
-        normalised = text.replace("-", "")
-        if text in content:
-            return text, normalised, "cat", None
-        # Formato certo e ausente do texto: o modelo pode ter reformatado o
-        # numero. Nao reescrevemos -- tanto '463-8344' quanto '6637238' sao
-        # formas legitimas no mesmo documento, e o normalizado ja esta certo.
-        return text, normalised, "not_printed", (
+    base, suffix = _split_part_number(text)
+
+    if PART_NUMBER_RE.match(base):
+        normalised = base.replace("-", "")
+        if text in content or base in content:
+            return text, normalised, suffix, "cat", None
+        # Nao esta impresso assim: tenta a outra forma antes de acusar, porque
+        # o mesmo documento imprime '463-8344' e '6637238'.
+        alternative = normalised[:3] + "-" + normalised[3:] if len(normalised) == 7 else base
+        if alternative in content:
+            return text, normalised, suffix, "cat", None
+        return text, normalised, suffix, "not_printed", (
             "part_number '%s' tem formato CAT mas nao aparece no texto" % text
         )
 
     if CODE_RE.match(text):
-        return text, None, "other_code", (
+        return text, None, None, "other_code", (
             "part_number '%s' nao tem formato CAT; mantido como codigo do fornecedor" % text
         )
-    return text, None, "not_a_code", "part_number '%s' nao tem forma de codigo" % text
+    return text, None, None, "not_a_code", "part_number '%s' nao tem forma de codigo" % text
 
 
 def _landed(kept: list, extra):
@@ -331,13 +352,14 @@ def _check_lines(tag: str, raw_lines: list, content: str):
     running = 0.0
 
     for n, li in enumerate(raw_lines):
-        printed, normalised, status, note = _classify_part_number(
+        printed, normalised, suffix, status, note = _classify_part_number(
             li.get("part_number"), content
         )
         li = dict(
             li,
             part_number=printed,
             part_number_normalised=normalised,
+            part_number_suffix=suffix,
             part_number_status=status,
         )
         if note:
@@ -459,6 +481,7 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
             line_items.append({
                 "part_number": _s(li.get("part_number")),
                 "part_number_normalised": li.get("part_number_normalised"),
+                "part_number_suffix": li.get("part_number_suffix"),
                 "part_number_status": li.get("part_number_status"),
                 "description": li.get("description"),
                 "quantity": _s(li.get("quantity")),
