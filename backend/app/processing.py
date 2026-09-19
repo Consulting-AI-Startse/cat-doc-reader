@@ -1,4 +1,4 @@
-﻿import json
+import json
 import logging
 import urllib.request
 from uuid import UUID
