@@ -23,7 +23,10 @@ class Settings(BaseSettings):
     azure_docintel_high_res: bool = True
     azure_openai_endpoint: str = ""
     azure_openai_key: str = ""
-    azure_openai_deployment: str = "gpt-4o"
+    # O deployment publicado e gpt-4.1. O default so entra em cena se a app
+    # setting sumir -- e ja aconteceu num run de infraestrutura. Deixar 'gpt-4o'
+    # aqui fazia o codigo cair calado num deployment que nem existe no recurso.
+    azure_openai_deployment: str = "gpt-4.1"
     azure_openai_api_version: str = "2024-10-21"
 
     function_url: str = ""
