@@ -42,7 +42,7 @@ export function Dashboard() {
   const docs = useQuery({
     queryKey: ["documents"],
     queryFn: listDocuments,
-
+    // Polling enquanto houver documento em processamento.
     refetchInterval: (query) => {
       const rows = query.state.data as DocumentListItem[] | undefined;
       return rows?.some((r) => isPending(r.status)) ? 3000 : false;

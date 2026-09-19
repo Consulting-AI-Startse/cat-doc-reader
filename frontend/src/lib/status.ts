@@ -1,8 +1,8 @@
-
+// Estado "em andamento": mostra pulso e dispara o polling.
 export function isPending(s: string): boolean {
   return s === "received" || s === "processing";
 }
-
+// Estados em que o documento pode ser editado/aprovado (revisão humana).
 export function canReview(s: string): boolean {
   return s === "extracted" || s === "needs_review";
 }
@@ -28,6 +28,7 @@ export function statusLabel(s: string): string {
   }
 }
 
+// Classes Tailwind (bg/text/ring) por status, para o badge.
 export function statusBadgeClasses(s: string): string {
   switch (s) {
     case "received":

@@ -1,5 +1,5 @@
-
-
+// `||` (não `??`) para que VITE_API_BASE_URL="" (vazio no dev) caia no proxy
+// "/api" do Vite. Com `??`, a string vazia passaria e quebraria as URLs.
 export const apiBase = () => import.meta.env.VITE_API_BASE_URL || "/api";
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {

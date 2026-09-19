@@ -12,7 +12,7 @@ interface FileUploadProps {
   onFile: (file: File) => void;
   onClear: () => void;
 }
-
+/** Drag-drop + preview do PDF selecionado. O Confirmar/Cancelar vive no modal. */
 export function FileUpload({ file, onFile, onClear }: FileUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);

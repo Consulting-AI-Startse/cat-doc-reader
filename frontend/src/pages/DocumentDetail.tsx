@@ -160,7 +160,8 @@ export function DocumentDetail() {
   function setInv(i: number, k: keyof Omit<InvoiceForm, "line_items">, v: string) {
     setForm((f) => (f ? f.map((inv, j) => (j === i ? { ...inv, [k]: v } : inv)) : f));
   }
-
+  // Aplica um valor a TODAS as linhas do invoice. Usado para Fornecedor e
+  // Exportador, que são por linha no modelo mas o usuário edita uma vez por invoice.
   function setAllLines(i: number, k: keyof LineForm, v: string) {
     setForm((f) =>
       f
@@ -415,6 +416,7 @@ export function DocumentDetail() {
     </div>
   );
 }
+// --- pequenos componentes de apresentação ---
 
 function FieldInput({
   label,

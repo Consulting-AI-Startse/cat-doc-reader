@@ -1,4 +1,4 @@
-
+// Placeholder para valor ausente (sem em-dash).
 export const EMPTY = "-";
 
 export function money(v: string | number | null, currency: string | null): string {

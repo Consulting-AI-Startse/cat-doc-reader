@@ -6,7 +6,7 @@ export type DocumentStatus =
   | "approved"
   | "rejected"
   | "error";
-
+// Uma linha de part number (o grão do output). Todos os campos podem vir nulos.
 export interface LineItem {
   part_number: string | null;
   description: string | null;
@@ -23,6 +23,7 @@ export interface LineItem {
   manufacturer: string | null;
 }
 
+// Um invoice dentro de um documento.
 export interface Invoice {
   id: string;
   invoice_number: string | null;
@@ -38,6 +39,7 @@ export interface DocumentEvent {
   created_at: string;
 }
 
+// Documento completo (a tela de revisão).
 export interface DocumentDetail {
   id: string;
   status: DocumentStatus;
@@ -50,7 +52,7 @@ export interface DocumentDetail {
   invoices: Invoice[];
   events: DocumentEvent[];
 }
-
+// Item da lista de documentos (dashboard).
 export interface DocumentListItem {
   id: string;
   status: DocumentStatus;
@@ -70,6 +72,7 @@ export interface Metrics {
   erros: number;
   valor_total_extraido: number;
 }
+// --- Payload do PATCH (revisão humana): a mesma forma que o backend espera. ---
 
 export interface LineInput {
   part_number: string | null;
