@@ -1,0 +1,152 @@
+# Infrastructure provisioning orchestrator for AI Agent Document Reader.
+# Downloads governed ARM JSON templates from JFrog, stages them with Bicep files
+# and variables, then calls aiagent-documentreader-infra-deploy.yml for the target environment.
+name: AI Agent Document Reader — Provision
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'pov'
+        type: choice
+        options:
+        - pov
+
+env:
+  INFRA_DIR: aiagent-documentreader-infrastructure-azure
+  VARS_DIR: .github/variables
+
+jobs:
+  build:
+    runs-on: windows-latest
+    if: github.ref == 'refs/heads/main'
+    environment: build
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Load Variable Files
+        shell: pwsh
+        run: |
+          Get-Content "${{ env.VARS_DIR }}/global.env" | Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -notmatch '^\s*$' } >> $env:GITHUB_ENV
+          Get-Content "${{ env.VARS_DIR }}/build.env" | Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -notmatch '^\s*$' } >> $env:GITHUB_ENV
+
+      - name: Stage Parameter, Variable, and Bicep Artifacts
+        run: |
+          Copy-Item "${{ env.VARS_DIR }}" -Destination "${{ runner.temp }}/variables" -Recurse
+          Copy-Item "${{ env.INFRA_DIR }}/bicep/main.bicep" -Destination "${{ runner.temp }}" -Force
+          Copy-Item "${{ env.INFRA_DIR }}/bicep/rbac.bicep" -Destination "${{ runner.temp }}" -Force
+          Copy-Item "${{ env.INFRA_DIR }}/bicep/bicepconfig.json" -Destination "${{ runner.temp }}" -Force
+
+      - name: OIDC Login to Azure Public Cloud with AzPowershell (enableAzPSSession true)
+        uses: azure/login@v2
+        with:
+          environment: AzureCloud
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURESUBSCRIPTIONID }}
+          enable-AzPSSession: true
+
+      - name: Setup JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ secrets.ARTIFACTORY_ACCESS_TOKEN }}
+
+      - name: Download Artifactory Artifacts
+        shell: pwsh
+        run: |
+          $target = "${{ runner.temp }}/" -replace '\\','/'
+          $filespec = @"
+          {
+            "files": [
+              {
+                "pattern": "*",
+                "target": "$target",
+                "build": "com.cat.cloud.azure:Key-Vault/${{ env.KEYVAULTARTIFACTVERSION }}",
+                "flat": "true"
+              },
+              {
+                "pattern": "*",
+                "target": "$target",
+                "build": "com.cat.cloud.azure:App-Service/${{ env.APPSERVICEARTIFACTVERSION }}",
+                "flat": "true"
+              },
+              {
+                "pattern": "*",
+                "target": "$target",
+                "build": "com.cat.cloud.azure:App-Service-Plan/${{ env.APPSERVICEPLANARTIFACTVERSION }}",
+                "flat": "true"
+              },
+              {
+                "pattern": "*",
+                "target": "$target",
+                "build": "com.cat.cloud.azure:App-Insights/${{ env.APPINSIGHTSARTIFACTVERSION }}",
+                "flat": "true"
+              },
+              {
+                "pattern": "*",
+                "target": "$target",
+                "build": "com.cat.cloud.azure:Log-Analytics/${{ env.LOGANALYTICSARTIFACTVERSION }}",
+                "flat": "true"
+              },
+              {
+                "pattern": "*",
+                "target": "$target",
+                "build": "com.cat.cloud.azure:PostgreSQL-Server/${{ env.POSTGRESQLSERVERARTIFACTVERSION }}",
+                "flat": "true"
+              },
+              {
+                "pattern": "*",
+                "target": "$target",
+                "build": "com.cat.cloud.azure:Storage-Account/${{ env.STORAGEACCOUNTARTIFACTVERSION }}",
+                "flat": "true"
+              },
+              {
+                "pattern": "*",
+                "target": "$target",
+                "build": "com.cat.cloud.azure:Cognitive-Service/${{ env.COGNITIVESERVICEARTIFACTVERSION }}",
+                "flat": "true"
+              },
+              {
+                "pattern": "*",
+                "target": "$target",
+                "build": "com.cat.cloud.azure:Cognitive-Service-CustomFilter/${{ env.COGNITIVESERVICECUSTOMFILTERARTIFACTVERSION }}",
+                "flat": "true"
+              },
+              {
+                "pattern": "*",
+                "target": "$target",
+                "build": "com.cat.cloud.azure:Functions/${{ env.FUNCTIONSARTIFACTVERSION }}",
+                "flat": "true"
+              }
+            ]
+          }
+          "@
+          $filespec | Set-Content -Path "${{ runner.temp }}\filespec" -Encoding utf8
+          jf rt download --spec "${{ runner.temp }}\filespec"
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: buildArtifacts
+          path: ${{ runner.temp }}
+
+  deployment-job-matrix:
+    needs: [build]
+    if: ${{ success() && github.ref == 'refs/heads/main' }}
+    strategy:
+      max-parallel: 1
+      matrix:
+        target: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.environment)) || fromJSON('["dev"]') }}
+    uses: ./.github/workflows/aiagent-documentreader-infra-deploy.yml
+    with:
+      environment: ${{ matrix.target }}
+    secrets:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}

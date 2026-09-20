@@ -1,0 +1,100 @@
+# This workflow deploys LLM and embedding models to the Azure OpenAI instance.
+# It downloads the governed ARM template from JFrog (Cognitive-Service artifact) and deploys
+# N models using a comma-separated model:version input.
+# Restricted to main branch only.
+name: Deploy AI Model
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'pov'
+        type: choice
+        options:
+          - pov
+          - dev
+          - qa
+          - prod
+
+      model_version_pairs:
+        description: 'Comma-separated model:version pairs (e.g. gpt-4o:2024-08-06,text-embedding-ada-002:2)'
+        required: true
+        type: string
+
+jobs:
+  deploy-model:
+    name: Deploy AI Model
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Load Variable Files
+        shell: pwsh
+        run: |
+          Get-Content ".github/variables/global.env" | ForEach-Object { $_.Trim() -replace '[\r\n]', '' } | Where-Object { $_ -and $_ -notmatch '^\s*#' } | Add-Content $env:GITHUB_ENV
+          Get-Content ".github/variables/build.env" | ForEach-Object { $_.Trim() -replace '[\r\n]', '' } | Where-Object { $_ -and $_ -notmatch '^\s*#' } | Add-Content $env:GITHUB_ENV
+          Get-Content ".github/variables/${{ inputs.environment }}.env" | ForEach-Object { $_.Trim() -replace '[\r\n]', '' } | Where-Object { $_ -and $_ -notmatch '^\s*#' } | Add-Content $env:GITHUB_ENV
+
+      - name: OIDC Login to Azure
+        uses: azure/login@v2
+        with:
+          environment: AzureCloud
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURESUBSCRIPTIONID }}
+          enable-AzPSSession: true
+
+      - name: Setup JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ secrets.ARTIFACTORY_ACCESS_TOKEN }}
+
+      - name: Download Model Deployment Template from JFrog
+        shell: pwsh
+        run: |
+          $filespec = @"
+          {
+            "files": [
+              {
+                "pattern": "cognitive-service-model-deployment.json",
+                "target": "${{ runner.temp }}/",
+                "build": "com.cat.cloud.azure:Cognitive-Service/${{ env.COGNITIVESERVICEARTIFACTVERSION }}",
+                "flat": "true"
+              }
+            ]
+          }
+          "@
+          $filespec = $filespec.Replace('\','/')
+          $filespec | Set-Content -Path "${{ runner.temp }}\filespec"
+          jf rt download --spec ${{ runner.temp }}\filespec
+
+      - name: Stage Bicep File
+        shell: pwsh
+        run: |
+          Copy-Item "aiagent-documentreader-infrastructure-azure/bicep/model-deployment.bicep" -Destination "${{ runner.temp }}" -Force
+
+      - name: Sanitize Model Input
+        shell: pwsh
+        run: |
+          $sanitized = '${{ inputs.model_version_pairs }}' -replace '\s', ''
+          echo "SANITIZED_MODEL_PAIRS=$sanitized" >> $env:GITHUB_ENV
+
+      - name: Deploy AI Models
+        uses: Azure/arm-deploy@v2
+        with:
+          resourceGroupName: ${{ env.RESOURCEGROUPNAME }}
+          template: ${{ runner.temp }}/model-deployment.bicep
+          parameters: >-
+            projectName=${{ env.PROJECTNAME }}
+            environment=${{ inputs.environment }}
+            modelVersionPairs=${{ env.SANITIZED_MODEL_PAIRS }}
+          deploymentName: model-deploy-${{ github.run_id }}-${{ github.run_number }}
+          deploymentMode: Incremental

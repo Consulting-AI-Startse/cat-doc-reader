@@ -1,0 +1,164 @@
+# Reusable deploy-only workflow — called by aiagent-documentreader-infra-provision.yml.
+# Do not trigger this workflow directly; use aiagent-documentreader-infra-provision.yml instead.
+# Deploys Bicep templates wrapping JFrog governed ARM JSON templates.
+#
+# Step 1: Validate & Deploy main.bicep (first provision — creates all resources)
+# Step 2: Validate & Deploy rbac.bicep (second provision — RBAC & network tags)
+name: AI Agent Document Reader — Deploy Bicep
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+
+    secrets:
+      AZURE_CLIENT_ID:
+        required: true
+      AZURE_TENANT_ID:
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy Bicep
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: buildArtifacts
+
+      - name: Load Variable Files
+        shell: pwsh
+        run: |
+          Get-Content "variables/global.env" | Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -notmatch '^\s*$' } >> $env:GITHUB_ENV
+          Get-Content "variables/${{ inputs.environment || 'dev' }}.env" | Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -notmatch '^\s*$' } >> $env:GITHUB_ENV
+
+      - name: Derive Resource Group Name
+        shell: pwsh
+        run: |
+          if (-not $env:RESOURCEGROUPNAME) {
+            $rgName = "${{ env.PROJECTNAME }}-${{ inputs.environment }}".Trim()
+            echo "RESOURCEGROUPNAME=$rgName" >> $env:GITHUB_ENV
+          }
+
+      - name: OIDC Login to Azure
+        uses: azure/login@v2
+        with:
+          environment: AzureCloud
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURESUBSCRIPTIONID }}
+          enable-AzPSSession: true
+
+      # - name: Create Resource Group
+      #   run: az group create --name ${{ env.RESOURCEGROUPNAME }} --location ${{ env.RESOURCEGROUPLOCATION }}
+
+      # ========================================================================
+      # Step 1: Validate main.bicep
+      # ========================================================================
+      - name: Validate main.bicep (First Provision)
+        uses: Azure/arm-deploy@v2
+        with:
+          resourceGroupName: ${{ env.RESOURCEGROUPNAME }}
+          template: main.bicep
+          parameters: >-
+            projectName=${{ env.PROJECTNAME }}
+            environment=${{ inputs.environment }}
+            developerGroupObjectId=${{ env.DEVELOPERGROUPOBJECTID }}
+            developerGroupName=${{ env.DEVELOPERGROUPNAME }}
+            clientIdFlask=${{ env.CLIENT_ID_FLASK }}
+          deploymentName: validate-main-${{ github.run_id }}-${{ github.run_number }}
+          deploymentMode: Validate
+
+      # ========================================================================
+      # Step 2: Deploy main.bicep (First Provision — creates all resources)
+      # ========================================================================
+      - name: Deploy main.bicep (First Provision)
+        uses: Azure/arm-deploy@v2
+        with:
+          resourceGroupName: ${{ env.RESOURCEGROUPNAME }}
+          template: main.bicep
+          parameters: >-
+            projectName=${{ env.PROJECTNAME }}
+            environment=${{ inputs.environment }}
+            developerGroupObjectId=${{ env.DEVELOPERGROUPOBJECTID }}
+            developerGroupName=${{ env.DEVELOPERGROUPNAME }}
+            clientIdFlask=${{ env.CLIENT_ID_FLASK }}
+          deploymentName: first-provision-${{ github.run_id }}-${{ github.run_number }}
+          deploymentMode: Incremental
+
+      # ========================================================================
+      # Step 3: Validate rbac.bicep
+      # ========================================================================
+      - name: Validate rbac.bicep (Second Provision)
+        uses: Azure/arm-deploy@v2
+        with:
+          resourceGroupName: ${{ env.RESOURCEGROUPNAME }}
+          template: rbac.bicep
+          parameters: >-
+            projectName=${{ env.PROJECTNAME }}
+            environment=${{ inputs.environment }}
+            developerGroupObjectId=${{ env.DEVELOPERGROUPOBJECTID }}
+          deploymentName: validate-rbac-${{ github.run_id }}-${{ github.run_number }}
+          deploymentMode: Validate
+
+      # ========================================================================
+      # Step 4: Deploy rbac.bicep (Second Provision — RBAC & network tags)
+      # ========================================================================
+      - name: Deploy rbac.bicep (Second Provision)
+        uses: Azure/arm-deploy@v2
+        with:
+          resourceGroupName: ${{ env.RESOURCEGROUPNAME }}
+          template: rbac.bicep
+          parameters: >-
+            projectName=${{ env.PROJECTNAME }}
+            environment=${{ inputs.environment }}
+            developerGroupObjectId=${{ env.DEVELOPERGROUPOBJECTID }}
+          deploymentName: rbac-provision-${{ github.run_id }}-${{ github.run_number }}
+          deploymentMode: Incremental
+
+      # ========================================================================
+      # Step 5: Apply Cognitive Services tags via CLI (bypasses RP polling issue)
+      # ========================================================================
+      - name: Apply Cognitive Services tags
+        shell: bash
+        run: |
+          PREFIX="${{ env.PROJECTNAME }}-${{ inputs.environment }}"
+          RG="${{ env.RESOURCEGROUPNAME }}"
+          BACKEND_FUNC="${PREFIX}-backend-function"
+          BACKEND_PRINCIPAL=$(az webapp identity show --name "$BACKEND_FUNC" --resource-group "$RG" --query principalId -o tsv)
+
+          # OpenAI tags
+          az tag update --resource-id $(az cognitiveservices account show --name "${PREFIX}-openai" --resource-group "$RG" --query id -o tsv) \
+            --operation merge --tags "roleAssignments1=${BACKEND_PRINCIPAL} Cognitive Services OpenAI User" "ingress1=${BACKEND_FUNC}"
+
+          # Document Intelligence tags
+          az tag update --resource-id $(az cognitiveservices account show --name "${PREFIX}-ai-docintelligence" --resource-group "$RG" --query id -o tsv) \
+            --operation merge --tags "roleAssignments1=${BACKEND_PRINCIPAL} Cognitive Services User" "ingress1=${BACKEND_FUNC}"
+
+          # Language tags
+          az tag update --resource-id $(az cognitiveservices account show --name "${PREFIX}-ai-language" --resource-group "$RG" --query id -o tsv) \
+            --operation merge --tags "roleAssignments1=${BACKEND_PRINCIPAL} Cognitive Services User" "ingress1=${BACKEND_FUNC}"
+
+      # ========================================================================
+      # Step 6: Set Flask EasyAuth client secret on FastAPI App Service
+      # ========================================================================
+      - name: Configure Flask EasyAuth Secret (Key Vault Reference)
+        if: ${{ env.CLIENT_ID_FLASK != '' }}
+        shell: bash
+        run: |
+          PREFIX="${{ env.PROJECTNAME }}-${{ inputs.environment }}"
+          RG="${{ env.RESOURCEGROUPNAME }}"
+          FRONTEND_APP="${PREFIX}-frontend-appservice"
+          KV_NAME=$(az keyvault list --resource-group "$RG" --query "[0].name" -o tsv)
+          SECRET_URI="https://${KV_NAME}.vault.azure.net/secrets/flask-easyauth-client-secret"
+          az webapp config appsettings set \
+            --name "$FRONTEND_APP" \
+            --resource-group "$RG" \
+            --settings MICROSOFT_PROVIDER_AUTHENTICATION_SECRET="@Microsoft.KeyVault(SecretUri=${SECRET_URI})"
