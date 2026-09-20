@@ -34,6 +34,7 @@ def build_extractor() -> DocumentExtractor:
         return DoclingExtractor(
             force_full_page_ocr=settings.local_extractor_force_ocr,
             dpi=settings.local_extractor_dpi,
+            fix_rotation=settings.local_extractor_fix_rotation,
         )
     if settings.use_real_services:
         from pipeline.extractor import DocumentIntelligenceExtractor

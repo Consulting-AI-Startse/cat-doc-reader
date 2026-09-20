@@ -178,7 +178,7 @@ PDF. É o caminho PDF→OCR do Docling que se perde nessas páginas.
 Custo: ~13 s por página recuperada por imagem. Documento nativo não paga nada
 disso, porque nenhuma página fica magra.
 
-### Rotação: limite conhecido, não resolvido
+### Rotação: resolvida pelo classificador de ângulo
 
 Girar a página **não** muda o reconhecimento dos caracteres — o RapidOCR tem
 classificador de ângulo por linha e acerta as letras de qualquer jeito. Muda a
@@ -189,23 +189,37 @@ e o modelo de tabela não encontra tabela nenhuma.
 Medido na página 4 do CIV: sem girar 1.878 chars e 0 tabelas; girada 180° 2.920
 chars e **2 tabelas**, com a ordem certa.
 
-Duas coisas foram testadas para detectar a rotação automaticamente e **as duas
-falharam**:
+Três abordagens foram testadas. As duas primeiras falharam:
 
-- **Geometria** (perfil de projeção para achar o eixo do texto + assimetria de
-  tinta para separar 0° de 180°): 7 acertos em 35 páginas, pior que os ~25% do
-  acaso.
-- **Sonda de OCR** nas quatro orientações: as margens são ruído — 0.992 contra
-  0.991 de confiança, 882 contra 887 caracteres. Faz sentido, já que o texto
-  reconhecido é o mesmo; só a ordem muda.
+- **Geometria** (perfil de projeção + assimetria de tinta): 7 acertos em 35
+  páginas, pior que os ~25% do acaso.
+- **Sonda de OCR** nas quatro orientações: margens de ruído — 0.992 contra 0.991
+  de confiança, 882 contra 887 caracteres. Coerente: o texto reconhecido é o
+  mesmo, só a ordem muda.
 
-O sinal confiável é o **layout** (tabela encontrada), mas isso exige uma
-conversão completa por orientação, e cada `convert()` do Docling não devolve a
-memória: com 7 GB, duas orientações por página levam a OOM, testado a 150 e a
-100 dpi. Por isso a sonda **não foi para o código**.
+A terceira funciona. O RapidOCR carrega um **classificador de ângulo por linha**
+(`ch_ptocr_mobile_v2.0_cls_mobile`), feito exatamente para dizer se uma linha
+está invertida. Detecta-se as caixas de texto, recorta até 25 e tira a maioria:
 
-Efeito prático: página girada sai com o texto certo, fora de ordem e sem tabela
-— e ainda assim os part numbers são recuperados (8 de 8 no trecho testado).
+| | |
+|---|---|
+| acerto contra os ângulos do DI | **26 de 26**, 0 erros, 5 páginas sem texto |
+| custo | **~1 s por página**, sem envolver o Docling |
+| separação | página de pé dá fração de invertidas 0.00–0.16; virada, 0.76–0.96 |
+
+Está ligado por padrão (`LOCAL_EXTRACTOR_FIX_ROTATION`). Efeito medido no trecho
+de 6 páginas do CIV: **13.616 chars e 4 tabelas**, contra 10.694 e 1 tabela sem
+a correção. As páginas 4, 5 e 6 foram detectadas a 180°, batendo com o DI.
+
+### Limite que resta: memória em documento longo
+
+Cada `convert()` do Docling não devolve a memória. O trecho de 6 páginas roda
+bem; o CIV inteiro, com 33 páginas indo para o caminho de imagem, levou a OOM
+nesta máquina de 7 GB — com a ressalva de que ~2,7 GB estavam tomados por outras
+ferramentas na hora do teste, então a medição não é limpa.
+
+Se aparecer, a saída é processar as páginas em lotes num subprocesso, que
+devolve a memória ao terminar. Não foi implementado.
 
 O extractor **estoura em vez de devolver texto vazio**: abaixo de 150 caracteres
 por página, e já tendo tentado o caminho por imagem, levanta

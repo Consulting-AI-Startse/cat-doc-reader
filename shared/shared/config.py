@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     local_extractor_force_ocr: bool = False
     # DPI do fallback por imagem, quando o caminho PDF do Docling nao le a pagina.
     local_extractor_dpi: int = 150
+    # Corrige pagina invertida antes do OCR, pelo classificador de angulo do
+    # RapidOCR (~1 s/pagina, 26/26 no CIV). Desligue so para comparar.
+    local_extractor_fix_rotation: bool = True
 
     # Structurer local de desenvolvimento (OpenRouter). Mesma logica: tem
     # precedencia sobre use_real_services e decide so o structurer. A chave sai
