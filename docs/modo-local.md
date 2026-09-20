@@ -92,6 +92,44 @@ OpenRouter. A classe avisa no log quando o modelo escolhido está fora da lista
 conhecida (`openai/`, `anthropic/`, `google/gemini`, `mistralai/`). Se o
 parsing falhar com `JSONDecodeError`, é o primeiro lugar para olhar.
 
+## Como cada etapa falha
+
+Regra das duas etapas: **nada passa calado**. Ou estoura, ou deixa nota em
+`validation`. Documento gravado sem explicação é bug, não resultado.
+
+### Extractor (Docling)
+
+| situação | comportamento |
+|---|---|
+| docling não instalado | `ImportError` no construtor, dizendo para instalar `requirements-local.txt` |
+| texto abaixo de 150 chars/página | `LocalExtractionFailed` com os scores — é o caso da página girada |
+| PDF ilegível / corrompido | exceção do próprio Docling, propagada |
+| scores `nan` | viram `null` no JSON, nunca `NaN` (que quebraria o `jsonb`) |
+
+### Structurer (OpenRouter)
+
+| situação | comportamento |
+|---|---|
+| `OPENROUTER_API_KEY` ausente | `ValueError` no construtor, apontando o `.env.local` |
+| modelo sem suporte a modo JSON | `logger.warning` no construtor com a lista dos conhecidos |
+| erro HTTP / rate limit / sem crédito | exceção do SDK `openai`, propagada |
+| resposta não é JSON | `JSONDecodeError` — ver o aviso de modo JSON acima |
+| **resposta é JSON válido mas sem invoices** | nota em `validation` e confiança 0.0 |
+
+A última linha era uma falha silenciosa de verdade e foi corrigida em
+`_normalise`, não aqui: o modelo devolvia `{}` ou `{"invoices": []}`, o
+documento era gravado sem nenhuma linha e quem revisasse abria uma tela vazia
+sem explicação. A confiança zerada já mandava para `needs_review`, mas sem
+dizer por quê. Agora sai:
+
+```
+modelo nao devolveu nenhuma invoice (chaves recebidas: ['invoices']);
+documento gravado vazio
+```
+
+Vale para o Azure OpenAI também — por isso a correção está no caminho de
+produção, não no arquivo local.
+
 ## O que foi medido no extractor
 
 Tudo abaixo é medição no corpus real, não estimativa.

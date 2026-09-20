@@ -410,6 +410,16 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
     if skipped:
         issues.append("%d entrada(s) de invoice invalida(s) ignorada(s)" % skipped)
 
+    if not entries:
+        # Falha silenciosa que ja aconteceu: o modelo devolve '{}' ou
+        # '{"invoices": []}', o documento e gravado sem nenhuma linha e quem
+        # revisa abre uma tela vazia sem explicacao. A confianca zerada ja
+        # mandava para needs_review, mas sem dizer por que.
+        issues.append(
+            "modelo nao devolveu nenhuma invoice (chaves recebidas: %s); "
+            "documento gravado vazio" % (sorted(payload) or "nenhuma")
+        )
+
     cat_numbers = cat_numbers or []
     if cat_note:
         issues.append(cat_note)
