@@ -294,6 +294,10 @@ class AzureOpenAIStructurer(LLMStructurer):
             raise ValueError("AZURE_OPENAI_DEPLOYMENT nao configurado")
 
         self._deployment = deployment
+        # Atributo, nao literal, para uma subclasse poder ajustar sem
+        # duplicar structure(). Modelos fora do Azure capam em valores
+        # diferentes.
+        self._max_tokens = 16000
 
         if key:
             self._client = AzureOpenAI(
@@ -333,7 +337,7 @@ class AzureOpenAIStructurer(LLMStructurer):
             ],
             response_format={"type": "json_object"},
             temperature=0,
-            max_tokens=16000,
+            max_tokens=self._max_tokens,
         )
 
         payload = json.loads(response.choices[0].message.content or "{}")

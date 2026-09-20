@@ -2,7 +2,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # .env.local vem depois e tem precedencia sobre .env: e onde ficam segredos
+    # de desenvolvimento que nao podem existir em nenhum ambiente da CAT, como a
+    # chave do OpenRouter. Ja esta coberto pelo .gitignore (.env.*).
+    # Variavel de ambiente continua vencendo os dois.
+    model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra="ignore")
 
     database_url: str = "postgresql+psycopg://invoice:invoice@localhost:5432/documentreader"
     db_use_entra_token: bool = False
@@ -20,12 +24,20 @@ class Settings(BaseSettings):
     use_real_services: bool = False
 
     # Extractor local de desenvolvimento (Docling). Nao existe como app setting
-    # no Function App -- e deliberado, ver docs/extractor-local.md. Tem
+    # no Function App -- e deliberado, ver docs/modo-local.md. Tem
     # precedencia sobre use_real_services na escolha do extractor, e so do
     # extractor: com os dois ligados roda Docling + Azure OpenAI de verdade,
     # que e o combo para testar o parsing do LLM sem gastar Doc Intelligence.
     use_local_extractor: bool = False
     local_extractor_force_ocr: bool = False
+
+    # Structurer local de desenvolvimento (OpenRouter). Mesma logica: tem
+    # precedencia sobre use_real_services e decide so o structurer. A chave sai
+    # do ambiente ou do .env.local, nunca do .env versionavel.
+    use_local_structurer: bool = False
+    openrouter_api_key: str = ""
+    openrouter_model: str = "openai/gpt-4.1"
+    openrouter_max_tokens: int = 16000
     azure_docintel_endpoint: str = ""
     azure_docintel_key: str = ""
     azure_docintel_high_res: bool = True

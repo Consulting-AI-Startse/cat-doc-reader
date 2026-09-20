@@ -55,22 +55,25 @@ Entao:
 verdade do schema. `db/db-setup-v2.sql` e o schema achatado (head 0002) pra aplicar direto
 no ambiente da CAT (Fase 0 do DEPLOY.md), gerado a partir das migracoes.
 
-## Extractor local (Docling): fica fora do deploy, de proposito
+## Modo local (Docling + OpenRouter): fica fora do deploy, de proposito
 
-`function/pipeline/extractor_local.py` roda OCR na maquina do desenvolvedor, para
-exercitar o structurer com texto real sem chamar o Document Intelligence. **Nunca vai
+`function/pipeline/extractor_local.py` roda OCR na maquina do desenvolvedor e
+`function/pipeline/structurer_local.py` manda o texto para um LLM via OpenRouter, para
+exercitar o pipeline inteiro sem Document Intelligence nem Azure OpenAI. **Nunca vao
 para o Function App nem para o repo da Caterpillar**, e a estrutura garante isso em
 tres pontos independentes:
 
-- a dependencia mora em `function/requirements-local.txt`, e o Oryx so le
-  `requirements.txt`;
-- `.funcignore` exclui o modulo e aquele requirements do zip;
-- `build_extractor()` so importa quando `USE_LOCAL_EXTRACTOR=true`, setting que nao
-  existe no Function App.
+- a dependencia do Docling mora em `function/requirements-local.txt`, e o Oryx so le
+  `requirements.txt` (o structurer local nao tem dependencia nova: o `openai` ja esta
+  la por causa do Azure);
+- `.funcignore` exclui os dois modulos, aquele requirements e o `.env.local` do zip;
+- `build_extractor()` e `build_structurer()` so importam com `USE_LOCAL_EXTRACTOR` /
+  `USE_LOCAL_STRUCTURER`, settings que nao existem no Function App.
 
-Nao e substituto do Document Intelligence: o Docling nao rotaciona pagina, e 16 das 35
-paginas do CIV estao de cabeca para baixo ou deitadas. Detalhes, medicoes e o
-procedimento de remocao em `docs/extractor-local.md`.
+Nao sao substitutos: o Docling nao rotaciona pagina, e 16 das 35 paginas do CIV estao de
+cabeca para baixo ou deitadas. E o structurer local manda conteudo de documento para uma
+API de terceiros, o que e decisao de governanca, nao detalhe tecnico. Medicoes, matriz de
+settings e procedimento de remocao em `docs/modo-local.md`.
 
 ## Fluxo de deploy (resumo)
 

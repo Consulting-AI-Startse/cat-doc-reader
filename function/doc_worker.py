@@ -44,6 +44,17 @@ def build_extractor() -> DocumentExtractor:
 
 
 def build_structurer() -> LLMStructurer:
+    # Bloco de desenvolvimento local: remover junto com pipeline/structurer_local.py.
+    # Mesma precedencia do extractor -- decide so o structurer, e a setting nao
+    # existe no Function App.
+    if settings.use_local_structurer:
+        from pipeline.structurer_local import OpenRouterStructurer
+
+        return OpenRouterStructurer(
+            api_key=settings.openrouter_api_key,
+            model=settings.openrouter_model,
+            max_tokens=settings.openrouter_max_tokens,
+        )
     if settings.use_real_services:
         from pipeline.structurer import AzureOpenAIStructurer
 

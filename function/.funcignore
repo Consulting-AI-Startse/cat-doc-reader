@@ -4,6 +4,8 @@ local.settings.json
 .git
 *.zip
 
-# Extractor local de desenvolvimento: nunca vai no zip do deploy.
+# Modo local de desenvolvimento: nunca vai no zip do deploy.
 pipeline/extractor_local.py
+pipeline/structurer_local.py
 requirements-local.txt
+.env.local
