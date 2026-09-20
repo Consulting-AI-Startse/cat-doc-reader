@@ -3,3 +3,7 @@ __pycache__
 local.settings.json
 .git
 *.zip
+
+# Extractor local de desenvolvimento: nunca vai no zip do deploy.
+pipeline/extractor_local.py
+requirements-local.txt

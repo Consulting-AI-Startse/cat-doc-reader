@@ -55,6 +55,23 @@ Entao:
 verdade do schema. `db/db-setup-v2.sql` e o schema achatado (head 0002) pra aplicar direto
 no ambiente da CAT (Fase 0 do DEPLOY.md), gerado a partir das migracoes.
 
+## Extractor local (Docling): fica fora do deploy, de proposito
+
+`function/pipeline/extractor_local.py` roda OCR na maquina do desenvolvedor, para
+exercitar o structurer com texto real sem chamar o Document Intelligence. **Nunca vai
+para o Function App nem para o repo da Caterpillar**, e a estrutura garante isso em
+tres pontos independentes:
+
+- a dependencia mora em `function/requirements-local.txt`, e o Oryx so le
+  `requirements.txt`;
+- `.funcignore` exclui o modulo e aquele requirements do zip;
+- `build_extractor()` so importa quando `USE_LOCAL_EXTRACTOR=true`, setting que nao
+  existe no Function App.
+
+Nao e substituto do Document Intelligence: o Docling nao rotaciona pagina, e 16 das 35
+paginas do CIV estao de cabeca para baixo ou deitadas. Detalhes, medicoes e o
+procedimento de remocao em `docs/extractor-local.md`.
+
 ## Fluxo de deploy (resumo)
 
 1. Aplicar o schema: `db/db-setup-v2.sql` (uma vez).

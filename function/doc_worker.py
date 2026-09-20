@@ -24,6 +24,14 @@ CONFIDENCE_THRESHOLD = 0.90
 
 
 def build_extractor() -> DocumentExtractor:
+    # Bloco de desenvolvimento local: remover junto com pipeline/extractor_local.py.
+    # Vem ANTES do use_real_services de proposito -- o uso que importa e Docling
+    # + Azure OpenAI de verdade, para testar o parsing do LLM com texto real sem
+    # gastar Document Intelligence. Esta setting nao existe no Function App.
+    if settings.use_local_extractor:
+        from pipeline.extractor_local import DoclingExtractor
+
+        return DoclingExtractor(force_full_page_ocr=settings.local_extractor_force_ocr)
     if settings.use_real_services:
         from pipeline.extractor import DocumentIntelligenceExtractor
 

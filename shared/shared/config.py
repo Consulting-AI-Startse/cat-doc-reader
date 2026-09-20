@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     blob_container_name: str = "invoices"
 
     use_real_services: bool = False
+
+    # Extractor local de desenvolvimento (Docling). Nao existe como app setting
+    # no Function App -- e deliberado, ver docs/extractor-local.md. Tem
+    # precedencia sobre use_real_services na escolha do extractor, e so do
+    # extractor: com os dois ligados roda Docling + Azure OpenAI de verdade,
+    # que e o combo para testar o parsing do LLM sem gastar Doc Intelligence.
+    use_local_extractor: bool = False
+    local_extractor_force_ocr: bool = False
     azure_docintel_endpoint: str = ""
     azure_docintel_key: str = ""
     azure_docintel_high_res: bool = True

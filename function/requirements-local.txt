@@ -1,0 +1,11 @@
+# Dependencias do extractor LOCAL de desenvolvimento (pipeline/extractor_local.py).
+#
+# NAO instale isto no Function App e NAO junte com requirements.txt: o build
+# remoto do Oryx le requirements.txt, e o docling traz torch junto -- mais de
+# 1 GB que nao tem o que fazer na VM da CAT.
+#
+# Instalacao local (o indice de CPU evita baixar a stack CUDA inteira):
+#   uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+#   uv pip install -r function/requirements-local.txt
+
+docling==2.129.0
