@@ -35,3 +35,6 @@ function/shared/
 
 # limpeza temporaria
 _to_delete/
+
+# Estado do ambiente local (pids e logs do start-local.sh)
+.local/

@@ -23,6 +23,29 @@ gastar serviço pago e sem depender da rede da CAT.
 | exclusão do pacote | `function/.funcignore` | os dois módulos, o requirements local e o `.env.local` não entram no zip |
 | import condicional | `doc_worker.build_extractor()` / `build_structurer()` | só importam com `USE_LOCAL_EXTRACTOR` / `USE_LOCAL_STRUCTURER`, settings que não existem no Function App |
 
+## Subir o ambiente
+
+```bash
+./start-local.sh          # sobe azurite, func, backend e frontend
+./start-local.sh --status # so mostra o que esta de pe
+./stop-local.sh           # derruba (Postgres fica, e servico do sistema)
+```
+
+Pre-requisitos, uma vez por maquina:
+
+```bash
+npm i -g azurite azure-functions-core-tools@4
+cd function && uv venv --python 3.11 .venv   # 3.11 = runtime da function na Azure
+uv pip install --python .venv/bin/python -r requirements.txt
+```
+
+O `start-local.sh` roda o `scripts/build.sh` antes de tudo, porque a function
+importa `shared` de uma copia vendorizada e nao do pacote: `shared/pyproject.toml`
+declara `requires-python = ">=3.14"` enquanto o runtime da function e 3.11, entao
+instalar como pacote nao resolve. O deploy faz exatamente o mesmo.
+
+No Windows/VM o equivalente e o `start-local.ps1`.
+
 ## Configuração
 
 ```bash
