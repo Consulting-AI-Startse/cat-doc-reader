@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     # que e o combo para testar o parsing do LLM sem gastar Doc Intelligence.
     use_local_extractor: bool = False
     local_extractor_force_ocr: bool = False
+    # DPI do fallback por imagem, quando o caminho PDF do Docling nao le a pagina.
+    local_extractor_dpi: int = 150
 
     # Structurer local de desenvolvimento (OpenRouter). Mesma logica: tem
     # precedencia sobre use_real_services e decide so o structurer. A chave sai

@@ -11,24 +11,44 @@ Como fica fora do deploy:
   - build_extractor() so importa daqui quando USE_LOCAL_EXTRACTOR=true, e essa
     setting nao existe no Function App.
 
-Para remover tudo: apague este arquivo, requirements-local.txt, as duas linhas
-do .funcignore, o bloco de tres linhas em doc_worker.build_extractor() e a
-setting use_local_extractor em shared/config.py.
+Para remover tudo: veja docs/modo-local.md.
 
-LIMITES MEDIDOS (nao sao bugs, sao o motivo de isto ser so teste):
-  - PDF nativo (com camada de texto): otimo. A fatura turca sai com a tabela
-    de itens em markdown, part numbers 2+4 ('7G-5837') e decimais europeus
-    intactos.
-  - Pagina escaneada e DE PE: otimo. Nas paginas 1-3 do CIV o ocr_score deu
-    0.997 e saiu 7 dos 8 part numbers.
-  - Pagina escaneada e GIRADA: falha completa. Nas paginas 4-6 do CIV, que
-    estao a -179.8 graus, o RapidOCR devolve vazio -- 62 caracteres e nenhum
-    part number. O Document Intelligence rotaciona sozinho e nao perde nada;
-    o Docling nao. Por isso existe a guarda de conteudo magro abaixo: melhor
-    estourar do que entregar texto vazio para o LLM inventar em cima.
+DOIS CAMINHOS, do barato para o caro
+------------------------------------
+1. PDF direto. O Docling usa a camada de texto quando existe. E rapido e sai
+   perfeito em PDF nativo -- a fatura turca sai em 15 s com a tabela de itens
+   em markdown, '7G-5837' e '6.398,88' intactos. E o caminho padrao.
+
+2. Pagina renderizada como imagem. Usado so quando (1) devolve pouco texto.
+   Medido no CIV, paginas 4-6:
+
+       Docling pelo PDF .............    62 chars,  0 tabelas
+       imagem, sem girar ............ 1.878 chars,  0 tabelas, ordem invertida
+       imagem + 180 graus ........... 2.920 chars,  2 tabelas, ordem correta
+
+   O caminho PDF do Docling perde essas paginas por completo, e nao e questao
+   de resolucao: images_scale 1.0 e 2.0 dao os mesmos 62 chars.
+
+SOBRE A ROTACAO -- limite conhecido
+-----------------------------------
+Girar a pagina nao muda o reconhecimento dos caracteres: o RapidOCR tem
+classificador de angulo por linha e acerta as letras de qualquer jeito. Muda a
+ORDEM de leitura e o layout. Numa pagina a 180 graus sai
+'35.564,40 Invoice Amount Payable' em vez de 'Invoice Amount Payable 35.564,40',
+e o modelo de tabela nao acha tabela nenhuma.
+
+Medido na pagina 4 do CIV: sem girar 1.878 chars e 0 tabelas; girada 180 graus
+2.920 chars e 2 tabelas, com a ordem certa.
+
+Corrigir isso automaticamente exigiria uma conversao por orientacao, e cada
+conversao do Docling nao devolve a memoria: com 7 GB, duas orientacoes por
+pagina ja levam a OOM (testado a 150 e a 100 dpi). Por isso a sonda NAO foi
+para o codigo. O efeito pratico e que pagina girada sai com o texto certo mas
+fora de ordem e sem tabela -- o que ainda assim recupera os part numbers.
 """
 from __future__ import annotations
 
+import gc
 import io
 import logging
 import math
@@ -38,11 +58,10 @@ from pipeline.extractor import DocumentExtractor
 
 logger = logging.getLogger("extractor_local")
 
-# Abaixo disto o OCR quase certamente falhou (paginas giradas, PDF so imagem).
-# O CIV inteiro, que o Docling nao consegue ler, da ~133 chars/pagina; a fatura
-# turca, que ele le bem, da ~1800 numa pagina so.
+# Abaixo disto o texto da pagina nao presta: ou o caminho PDF falhou, ou a
+# pagina e imagem pura. O CIV inteiro pelo caminho PDF da ~133 chars/pagina;
+# a fatura turca, que sai bem, da ~1800 numa pagina so.
 MIN_CHARS_PER_PAGE = 150
-
 
 def _clean(value) -> float | None:
     """Docling devolve nan quando nem tentou pontuar aquela dimensao."""
@@ -70,11 +89,20 @@ class DoclingExtractor(DocumentExtractor):
 
     MODEL_ID = "docling"
 
-    def __init__(self, *, force_full_page_ocr: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        force_full_page_ocr: bool = False,
+        dpi: int = 150,
+    ) -> None:
         try:
             from docling.datamodel.base_models import InputFormat
             from docling.datamodel.pipeline_options import PdfPipelineOptions
-            from docling.document_converter import DocumentConverter, PdfFormatOption
+            from docling.document_converter import (
+                DocumentConverter,
+                ImageFormatOption,
+                PdfFormatOption,
+            )
         except ImportError as exc:  # pragma: no cover - depende do ambiente
             raise ImportError(
                 "USE_LOCAL_EXTRACTOR=true mas o docling nao esta instalado. "
@@ -88,46 +116,134 @@ class DoclingExtractor(DocumentExtractor):
         # Ajuda em PDF com camada de texto ruim e atrapalha quando ela e boa.
         options.ocr_options.force_full_page_ocr = force_full_page_ocr
 
+        self._dpi = dpi
         self._converter = DocumentConverter(
-            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)}
+            format_options={
+                InputFormat.PDF: PdfFormatOption(pipeline_options=options),
+                InputFormat.IMAGE: ImageFormatOption(pipeline_options=options),
+            }
         )
-        self._stream_cls = self._document_stream_cls()
 
-    @staticmethod
-    def _document_stream_cls():
+    # -- caminho 1: PDF direto -------------------------------------------------
+
+    def _convert_pdf(self, content: bytes):
         from docling.datamodel.base_models import DocumentStream
 
-        return DocumentStream
+        source = DocumentStream(name="upload.pdf", stream=io.BytesIO(content))
+        return self._converter.convert(source)
+
+    # -- caminho 2: pagina a pagina, como imagem -------------------------------
+
+    def _convert_images(self, content: bytes, apenas: list[int] | None = None):
+        """Renderiza as paginas pedidas e converte cada uma como imagem.
+
+        Devolve (por_pagina, tabelas, paginas). Cada pagina vira uma conversao
+        propria: e o preco de pular o caminho PDF do Docling.
+        """
+        import pypdfium2 as pdfium
+        from docling.datamodel.base_models import DocumentStream
+
+        pdf = pdfium.PdfDocument(io.BytesIO(content))
+        alvo = apenas or list(range(1, len(pdf) + 1))
+        por_pagina, tabelas, paginas = {}, [], []
+
+        for numero in alvo:
+            indice = numero - 1
+            # render() ja aplica o /Rotate declarado no PDF; o que sobra e a
+            # rotacao que veio queimada no bitmap do scan.
+            imagem = pdf[indice].render(scale=self._dpi / 72).to_pil()
+            score, markdown, tabs = self._convert_image(imagem, numero)
+            del imagem
+            gc.collect()
+
+            por_pagina[numero] = markdown
+            tabelas.extend(tabs)
+            paginas.append({
+                "page_number": numero,
+                "chars": len(markdown),
+                "tables": len(tabs),
+            })
+            logger.info(
+                "pagina %d por imagem: %d chars, %d tabelas",
+                numero, len(markdown), len(tabs),
+            )
+
+        return por_pagina, tabelas, paginas
+
+    def _convert_image(self, imagem, numero: int):
+        """(score, markdown, tabelas). Nao devolve o Document: segurar quatro
+        deles, um por orientacao, estourava a memoria."""
+        from docling.datamodel.base_models import DocumentStream
+
+        buf = io.BytesIO()
+        imagem.save(buf, format="PNG")
+        buf.seek(0)
+        try:
+            doc = self._converter.convert(
+                DocumentStream(name=f"p{numero}.png", stream=buf)
+            ).document
+        except Exception as exc:
+            logger.warning("pagina %d falhou na conversao por imagem: %s", numero, exc)
+            return -1.0, "", []
+        markdown = doc.export_to_markdown()
+        tabs = [_table_of(t, numero) for t in (doc.tables or [])]
+        del doc
+        # O sinal de orientacao certa e o LAYOUT, nao a confianca do OCR:
+        # tabela encontrada vale muito mais que um punhado de caracteres.
+        return len(tabs) * 1000 + len(markdown), markdown, tabs
+
+    # -- contrato --------------------------------------------------------------
 
     def extract(self, content: bytes) -> dict[str, Any]:
-        source = self._stream_cls(name="upload.pdf", stream=io.BytesIO(content))
-        result = self._converter.convert(source)
-        document = result.document
+        resultado = self._convert_pdf(content)
+        texto = resultado.document.export_to_markdown()
+        paginas, quality = _pages_and_quality(resultado, len(texto))
+        total = quality["page_count"] or 1
+        tabelas = _tables_of(resultado.document)
+        quality["path"] = "pdf"
 
-        text = document.export_to_markdown()
-        pages, quality = _pages_and_quality(result, len(text))
-        page_count = quality["page_count"] or 1
+        # Fallback POR PAGINA, nao pelo documento. A media enganava: no CIV as
+        # paginas 1 e 2 tem texto de verdade (913 e 1011 chars) e as outras 33
+        # vem vazias, o que derruba a media para 133 e reprovaria o documento
+        # inteiro -- inclusive as duas paginas boas.
+        magras = [n for n, c in _chars_por_pagina(resultado.document, total).items()
+                  if c < MIN_CHARS_PER_PAGE]
+        if magras:
+            logger.info(
+                "caminho PDF deixou %d de %d paginas magras; refazendo por imagem: %s",
+                len(magras), total, magras[:10],
+            )
+            por_pagina, tabelas_img, paginas_img = self._convert_images(content, magras)
+            recuperado = [
+                f"<!-- pagina {n} (OCR) -->\n\n{md}"
+                for n, md in sorted(por_pagina.items()) if md.strip()
+            ]
+            if recuperado:
+                texto = texto + "\n\n" + "\n\n".join(recuperado)
+                tabelas = tabelas + tabelas_img
+                paginas = paginas + paginas_img
+                quality = dict(
+                    quality,
+                    path="pdf+image",
+                    content_chars=len(texto),
+                    chars_per_page=round(len(texto) / total, 1),
+                    pages_recovered_by_image=len(recuperado),
+                )
 
-        if len(text) < MIN_CHARS_PER_PAGE * page_count:
+        if len(texto) < MIN_CHARS_PER_PAGE * total:
             raise LocalExtractionFailed(
-                "Docling extraiu %d chars em %d pagina(s) (%.0f por pagina, minimo %d). "
-                "Provavel pagina girada ou so imagem -- o Docling nao rotaciona. "
-                "Scores: %s"
+                "Docling extraiu %d chars em %d pagina(s) (%.0f por pagina, minimo %d) "
+                "mesmo apos o caminho por imagem. Scores: %s%s"
                 % (
-                    len(text),
-                    page_count,
-                    len(text) / page_count,
-                    MIN_CHARS_PER_PAGE,
-                    quality["scores"],
+                    len(texto), total, len(texto) / total, MIN_CHARS_PER_PAGE,
+                    quality.get("scores"),
+                    "",
                 )
             )
 
         logger.info(
-            "docling: %d paginas, %d chars, %d tabelas, scores %s",
-            page_count,
-            len(text),
-            len(document.tables or []),
-            quality["scores"],
+            "docling (%s): %d paginas, %d chars, %d tabelas",
+            quality["path"], total, len(texto), len(tabelas),
         )
 
         return {
@@ -139,37 +255,57 @@ class DoclingExtractor(DocumentExtractor):
             # O Docling nao tem modelo de invoice, entao nao ha pre-pass. O
             # structurer trata lista vazia normalmente.
             "invoices": [],
-            "content": text,
-            "tables": _tables_of(document),
-            "pages": pages,
+            "content": texto,
+            "tables": tabelas,
+            "pages": paginas,
             "low_confidence_words": [],
             "quality": quality,
         }
 
 
-def _tables_of(document) -> list[dict[str, Any]]:
+def _chars_por_pagina(document, total: int) -> dict[int, int]:
+    """Quantos caracteres o caminho PDF achou em cada pagina.
+
+    Vem da provenance dos itens de texto; pagina sem item nenhum conta zero.
+    """
+    contagem = {n: 0 for n in range(1, total + 1)}
+    for item in (getattr(document, "texts", None) or []):
+        texto = getattr(item, "text", "") or ""
+        for prov in (getattr(item, "prov", None) or []):
+            n = getattr(prov, "page_no", None)
+            if n in contagem:
+                contagem[n] += len(texto)
+    return contagem
+
+
+def _table_of(table, page_number: int | None = None) -> dict[str, Any]:
     """Mesma forma que a do Document Intelligence, para tables_summary funcionar."""
-    out = []
-    for table in (document.tables or []):
-        data = getattr(table, "data", None)
-        cells = []
-        for cell in (getattr(data, "table_cells", None) or []):
-            cells.append({
-                "row": getattr(cell, "start_row_offset_idx", None),
-                "col": getattr(cell, "start_col_offset_idx", None),
-                "row_span": getattr(cell, "row_span", None) or 1,
-                "col_span": getattr(cell, "col_span", None) or 1,
-                "kind": "columnHeader" if getattr(cell, "column_header", False) else "content",
-                "content": getattr(cell, "text", None),
-                "spans": [],
-            })
-        out.append({
-            "rows": getattr(data, "num_rows", None),
-            "columns": getattr(data, "num_cols", None),
-            "pages": sorted({p.page_no for p in (getattr(table, "prov", None) or [])}),
-            "cells": cells,
+    data = getattr(table, "data", None)
+    cells = []
+    for cell in (getattr(data, "table_cells", None) or []):
+        cells.append({
+            "row": getattr(cell, "start_row_offset_idx", None),
+            "col": getattr(cell, "start_col_offset_idx", None),
+            "row_span": getattr(cell, "row_span", None) or 1,
+            "col_span": getattr(cell, "col_span", None) or 1,
+            "kind": "columnHeader" if getattr(cell, "column_header", False) else "content",
+            "content": getattr(cell, "text", None),
+            "spans": [],
         })
-    return out
+    if page_number is not None:
+        paginas = [page_number]
+    else:
+        paginas = sorted({p.page_no for p in (getattr(table, "prov", None) or [])})
+    return {
+        "rows": getattr(data, "num_rows", None),
+        "columns": getattr(data, "num_cols", None),
+        "pages": paginas,
+        "cells": cells,
+    }
+
+
+def _tables_of(document) -> list[dict[str, Any]]:
+    return [_table_of(t) for t in (document.tables or [])]
 
 
 def _pages_and_quality(result, text_length: int) -> tuple[list[dict], dict]:

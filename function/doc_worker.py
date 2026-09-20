@@ -31,7 +31,10 @@ def build_extractor() -> DocumentExtractor:
     if settings.use_local_extractor:
         from pipeline.extractor_local import DoclingExtractor
 
-        return DoclingExtractor(force_full_page_ocr=settings.local_extractor_force_ocr)
+        return DoclingExtractor(
+            force_full_page_ocr=settings.local_extractor_force_ocr,
+            dpi=settings.local_extractor_dpi,
+        )
     if settings.use_real_services:
         from pipeline.extractor import DocumentIntelligenceExtractor
 

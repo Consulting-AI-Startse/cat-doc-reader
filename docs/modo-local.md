@@ -153,26 +153,65 @@ documento gravado vazio
 Vale para o Azure OpenAI também — por isso a correção está no caminho de
 produção, não no arquivo local.
 
-## O que foi medido no extractor
+## Dois caminhos: PDF e, se preciso, imagem
 
-Tudo abaixo é medição no corpus real, não estimativa.
+O extractor tenta primeiro o caminho **PDF**, em que o Docling usa a camada de
+texto. É rápido e sai perfeito em PDF nativo. Depois conta os caracteres **por
+página** e, para as páginas magras (< 150 chars), renderiza a página e converte
+como **imagem**.
 
-| documento | resultado |
+O fallback é por página, não por documento, e isso importa: no CIV as páginas 1
+e 2 têm texto de verdade (913 e 1011 chars) e as outras 33 vêm vazias. Uma média
+de documento daria 133 chars/página e reprovaria o arquivo inteiro — inclusive
+as duas páginas boas.
+
+| medição | resultado |
 |---|---|
-| Fatura turca (1 pág., PDF nativo) | **ótimo**. Tabela de itens em markdown, `7G-5837`, `9G-9180`, `473-7719`, decimais europeus (`6.398,88`) intactos. 14 s |
-| CIV, páginas 1–3 (escaneadas, de pé) | **ótimo**. `ocr_score` 0.997, 7 dos 8 part numbers. 22 s |
-| CIV, páginas 4–6 (escaneadas, giradas −179.8°) | **falha total**. RapidOCR devolve vazio: 62 caracteres, 0 part numbers |
-| CIV inteiro (35 pág.) | 4.670 chars e 1 tabela, contra **83.641 chars e 98 tabelas** do Document Intelligence |
+| Fatura turca (PDF nativo) | caminho `pdf`, 1.788 chars, 1 tabela, **14 s**. Os três part numbers |
+| CIV páginas 4–6, caminho PDF | **62 chars, 0 tabelas** — o Docling perde essas páginas |
+| CIV páginas 4–6, como imagem | 1.878 chars |
+| CIV 6 páginas, `pdf+image` | 10.694 chars e **8 de 8 part numbers**, contra 4.581 e 7 de 8 só pelo PDF |
 
-A causa é rotação de página, não qualidade de scan — as páginas de pé do mesmo
-documento saem perfeitas. Das 35 páginas do CIV, 11 estão a 180° e 4 a 90°, e o
-Document Intelligence rotaciona sozinho sem perder nada (confiança média 0.9747
-nas de pé contra 0.9734 nas invertidas). O Docling não faz isso.
+Não é resolução: `images_scale` 1.0 e 2.0 dão os mesmos 62 chars pelo caminho
+PDF. É o caminho PDF→OCR do Docling que se perde nessas páginas.
 
-Por isso o extractor **estoura em vez de devolver texto vazio**: abaixo de 150
-caracteres por página levanta `LocalExtractionFailed` com os scores. Texto vazio
-chegando no LLM vira invenção — foi o que vimos o LlamaExtract fazer nas colunas
-que não existiam no documento.
+Custo: ~13 s por página recuperada por imagem. Documento nativo não paga nada
+disso, porque nenhuma página fica magra.
+
+### Rotação: limite conhecido, não resolvido
+
+Girar a página **não** muda o reconhecimento dos caracteres — o RapidOCR tem
+classificador de ângulo por linha e acerta as letras de qualquer jeito. Muda a
+**ordem de leitura** e o layout. Numa página a 180° sai
+`35.564,40 Invoice Amount Payable` em vez de `Invoice Amount Payable 35.564,40`,
+e o modelo de tabela não encontra tabela nenhuma.
+
+Medido na página 4 do CIV: sem girar 1.878 chars e 0 tabelas; girada 180° 2.920
+chars e **2 tabelas**, com a ordem certa.
+
+Duas coisas foram testadas para detectar a rotação automaticamente e **as duas
+falharam**:
+
+- **Geometria** (perfil de projeção para achar o eixo do texto + assimetria de
+  tinta para separar 0° de 180°): 7 acertos em 35 páginas, pior que os ~25% do
+  acaso.
+- **Sonda de OCR** nas quatro orientações: as margens são ruído — 0.992 contra
+  0.991 de confiança, 882 contra 887 caracteres. Faz sentido, já que o texto
+  reconhecido é o mesmo; só a ordem muda.
+
+O sinal confiável é o **layout** (tabela encontrada), mas isso exige uma
+conversão completa por orientação, e cada `convert()` do Docling não devolve a
+memória: com 7 GB, duas orientações por página levam a OOM, testado a 150 e a
+100 dpi. Por isso a sonda **não foi para o código**.
+
+Efeito prático: página girada sai com o texto certo, fora de ordem e sem tabela
+— e ainda assim os part numbers são recuperados (8 de 8 no trecho testado).
+
+O extractor **estoura em vez de devolver texto vazio**: abaixo de 150 caracteres
+por página, e já tendo tentado o caminho por imagem, levanta
+`LocalExtractionFailed` com os scores. Texto vazio chegando no LLM vira invenção
+— foi o que vimos o LlamaExtract fazer nas colunas que não existiam no
+documento.
 
 ## O que o modo local não faz
 
