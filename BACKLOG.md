@@ -1,0 +1,232 @@
+# BACKLOG
+
+Próximas features, ponderadas. A ordem é do mais fácil para o mais difícil, com
+uma inversão deliberada (item 3), explicada abaixo.
+
+Esforço: **XS** < 1h · **S** ~meio dia · **M** ~1–2 dias · **L** ~1 semana
+
+| # | item | esforço | valor | depende |
+|---|---|---|---|---|
+| 1 | Poison handler grava status `error` | XS | alto | — |
+| 2 | `Unit` e `Unit Weight` | S | médio | — |
+| 3 | Lista de PN: tabela, import CSV e checagem | M | **muito alto** | — |
+| 4 | Serial Number (tabela própria + regra ENGINE) | M | alto | 3 |
+| 5 | Confiança por campo e geral | M | alto | — |
+| 6 | Duplicatas por (invoice, fornecedor) | M | médio | norm. fornecedor |
+| 7 | Classificação invoice × packing list | L | alto | — |
+| 8 | Relatório de confiança por fornecedor | M | médio | 5, 6 |
+| 9 | Métricas de processamento por período | M | médio | — |
+| — | `Invoice Type`, `Import Process`, `CSAR`, `PFO`, `##` | ? | ? | **bloqueado** |
+| — | Não-latino; Word/Excel | ? | ? | **escopo indefinido** |
+
+**A inversão:** o item 3 é M, não S, mas vem antes do 5 porque a lista de PN é a
+fonte da verdade da validação e porque destrava o item 4 de graça.
+
+## De onde vem o escopo
+
+`SUBIR_FATURA_GA.xlsx`, do cliente, traz 22 campos (15 mandatórios), as
+premissas do produto e o plano de aceitação. **Faltam 8 campos** no nosso
+schema: `Unit`, `Unit Weight`, `Serial Number`, `Invoice Type`,
+`Import Process`, `CSAR`, `PFO`, `##`. Dois são mandatórios (`Unit`,
+`Serial Number`).
+
+`FASES_LEITURA`, na mesma planilha, é o plano de aceitação — e mostra que um
+terço do corpus é um caso que hoje não tratamos:
+
+```
+PDF apenas com Invoice ..................... 5
+PDF e Imagens (JPEG, TIFF) ................. 5
+PDF com Invoice + Packing List ............ 10   <- item 7
+PDF escaneado / digitalizado .............. 10
+Imagem, Word, Excel ...................... TBD
+```
+
+As colunas `Latino` e `Full Não Latino` estão vazias: o escopo de alfabeto ainda
+não foi definido pelo cliente.
+
+---
+
+## 1. Poison handler grava status `error` (XS)
+
+**Aconteceu duas vezes hoje**, com o CIV: o worker morreu, a mensagem bateu em
+`MaxDequeueCount`, foi para `document-processing-poison`, o handler executou com
+sucesso — e o documento ficou em `processing` para sempre, sem erro e sem pista
+para quem revisa.
+
+`function/function_app.py`, em `process_document_poison`: extrair o
+`document_id` (já existe `_document_id_from`) e gravar `DocumentStatus.error`
+com mensagem dizendo que o processamento falhou duas vezes e apontando o log.
+
+Vale em produção tanto quanto local. Falha invisível é o pior modo de falha que
+temos.
+
+## 2. `Unit` e `Unit Weight` (S)
+
+Dois campos que o cliente pede e não temos. `Unit` é mandatório (a unidade:
+`pcs`, `kg`). `Unit Weight` é o `Peso Unitário` do gabarito, com verdade
+conhecida para conferir (`3649717 → 19,81`).
+
+- migração `0004`: `unit` `String(16)` e `unit_weight` `Numeric(18,5)` em
+  `invoice_part_number_items`
+- `shared/shared/models.py`, o dict emitido em `structurer._normalise`, o shape
+  do prompt, `_serialize_line` e `LineIn` em `backend/app/api/documents.py`
+
+## 3. Lista de PN Liberados (M)
+
+`PN Liberados.xlsx` tem **206.769 part numbers** com descrição, em duas colunas
+(`PECA`, `NOME`), **sem hífen** — exatamente a convenção do nosso
+`part_number_normalised`.
+
+Testada contra o que já extraímos:
+
+| | |
+|---|---|
+| part numbers que extraímos | **18 de 18 na lista** |
+| valores que rejeitamos | **6 de 6 ausentes** |
+
+`6637238 = PUMP GP-LUB`, `7G5837 = HUB-SPROCKET`, `5P1465 = HOSE BK`,
+`6511308 = ENGINE AR-COMPL`. Ausentes: `0V3456`, `QIPP27001`, `F4E09020`,
+`500001092`.
+
+**Decisão do cliente: a lista é a fonte da verdade.** O que não está nela não é
+part number. Isso rebaixa `PART_NUMBER_RE` a pré-filtro barato — ele continua
+descartando prosa antes da consulta, mas deixa de ser o juiz.
+
+### Modelo
+
+Migração `0005`, tabela `released_part_numbers`:
+
+| coluna | tipo | nota |
+|---|---|---|
+| `part_number` | `String(32)` PK | normalizado, maiúsculo, sem hífen |
+| `name` | `Text` | o `NOME` da planilha |
+| `is_engine` | `Boolean` indexado | derivado de `name` — usado pelo item 4 |
+| `imported_at` | timestamptz | |
+| `import_batch` | `String(64)` | arquivo + data, para auditoria |
+
+### A checagem, do jeito eficiente
+
+**Uma consulta por documento**, não por linha:
+
+```sql
+SELECT part_number, name, is_engine
+  FROM released_part_numbers
+ WHERE part_number = ANY(:lista)
+```
+
+Um round-trip, índice de PK, tipicamente menos de 50 valores. Nunca carregar
+206 mil linhas na memória da function a cada invocação.
+
+O structurer não conhece banco e não deve passar a conhecer: `doc_worker` passa
+um **callable opcional** `lookup(pns) -> dict` para `structure()`. Default
+`None` — aí a checagem é pulada e nada quebra, inclusive no `MockStructurer` e
+nos testes offline.
+
+Em `_check_lines`, cada linha passa a ter `released` ou `not_released`. Fora da
+lista → nota em `validation` e documento para `needs_review`. **A linha nunca é
+descartada**: a regra de marcar em vez de apagar continua valendo; o que muda é
+quem julga.
+
+### Import por CSV
+
+- `POST /parts/import` — multipart, mesmo padrão de `/documents/upload`
+- `csv.reader` em streaming, upsert em lotes de ~5.000 com
+  `ON CONFLICT (part_number) DO UPDATE`. 206 mil linhas não podem virar 206 mil
+  round-trips.
+- resposta com `{recebidas, inseridas, atualizadas, ignoradas, erros[]}`
+- `GET /parts/stats` para a tela mostrar total e último import
+
+### Tela
+
+`frontend/src/pages/PartNumbers.tsx`, registrada em `main.tsx` (uma linha antes
+do catch-all) e linkada no `AppShell.tsx`, que hoje não tem menu.
+
+Dois detalhes achados na exploração:
+
+- `components/FileUpload.tsx` é reaproveitável mas está **hardcoded em PDF em
+  três pontos** (teste `.pdf`, `accept=".pdf"`, preview em `<iframe>` e o texto
+  "Arraste o documento (PDF) aqui"). Precisa de props `accept` / `match` /
+  `hint` e preview opcional — para CSV o análogo é uma tabela das primeiras
+  linhas, não um iframe.
+- `api/client.ts` descarta o corpo do erro (`throw new Error(status)`), então o
+  `detail` do FastAPI nunca chega à tela. Para relatar erro por linha do CSV,
+  estender `api()`.
+
+## 4. Serial Number (M)
+
+Mandatório, e a premissa "TELA DE MANUTENÇÃO PARA ITENS COM SERIAL NUMBER" diz
+que serial é entidade de primeira classe. Então **tabela própria**, uma linha
+por serial.
+
+Migração `0006`: `invoice_item_serial_numbers` (`id`, `item_id` FK CASCADE,
+`serial_number` `String(64)` indexado, `created_at`).
+
+**Só preenchemos quando o part number for motor** — e a regra sai de graça do
+item 3: `is_engine`, derivado do `NOME` da lista (`ENGINE AR-COMPL` para
+`6511308` e `6522586`). Sem motor, não pedimos nem gravamos serial.
+
+## 5. Confiança por campo e geral (M)
+
+Requisito escrito ("CONFIDENCE SCORE GERAL E POR CAMPO"). Já prototipado e
+validado: 52 campos do CIV, **2 marcados** (`26-2100870`, `QIPPO1280`), **zero
+falsos positivos** — os dois marcados são os dois defeitos reais do documento.
+
+Mecanismo: localizar cada campo no `content` e pontuar pela **menor confiança de
+palavra** do trecho. Identificadores (`part_number`, `invoice_number`,
+`purchase_order`) buscam no documento inteiro; numéricos só na janela de ±1500
+chars da âncora da linha — `90` aparece 86 vezes no CIV e busca global não diz
+nada.
+
+Exige o extractor entregar o índice completo de palavras (offset, length,
+confiança) **em memória**; `doc_worker` descarta antes de gravar, como já faz
+com `tables_summary`.
+
+Saída: `min_field_confidence` (governa `needs_review`, porque uma média esconde
+um campo catastrófico) e `mean_field_confidence` (número de qualidade).
+Substitui a confiança auto-reportada pelo modelo, que já medimos ser inútil.
+
+Vale só no caminho Document Intelligence. O modo local pontua por página, não
+por palavra, e já declara `word_confidence_available: false`.
+
+## 6. Duplicatas (M)
+
+Premissa: "INVOICES DUPLICADAS PRECISAM SER SINALIZADAS (INVOICE + FORNECEDOR)".
+Chave `(invoice_number, supplier)` normalizados — o que exige normalização de
+fornecedor antes (`DOKTAS DOKUMCULUK TIC. VE SAN. A.S.` e variantes).
+
+## 7. Classificação invoice × packing list (L)
+
+Premissa: "IDENTIFICAR AQUILO QUE É UMA INVOICE OU NÃO". São **10 dos 30
+documentos** do plano de aceitação, e hoje não temos nada: mandamos o documento
+inteiro para o LLM e torcemos para ele ignorar o packing list.
+
+Decisão por página, aproveitando o markdown por página que o extractor local já
+produz.
+
+## 8 e 9
+
+- **Relatório de confiança por fornecedor** — depende de 5 e da normalização do 6.
+- **Métricas de processamento por período** — premissa "MÉTRICAS DE PERFORMANCE
+  DO AGENTE, DE PROCESSAMENTO E POR PERÍODO".
+
+---
+
+## Perguntas em aberto para a CAT
+
+1. O que são **`CSAR`**, **`PFO`** e **`##`**? Não aparecem em nenhum dos 28
+   documentos que temos.
+2. **`Invoice Type`** e **`Import Process`** vêm do documento ou são atribuídos
+   pelo despachante? No gabarito o `Processo` é constante no arquivo inteiro, o
+   que sugere atribuído.
+3. Quais **incoterms tornam `Domestic Freight` obrigatório**? A própria planilha
+   diz "MAPEAR".
+4. Nas CIVs de motor o cabeçalho é `Part Number / Serial Number / Pin Number`,
+   com **três valores para quatro colunas** (`6511308  F4E09020  ENGINE`).
+   `F4E09020` é **Serial** ou **PIN**?
+5. `Latino` / `Full Não Latino` na `FASES_LEITURA` — quais documentos e quais
+   alfabetos?
+6. Com que frequência a **lista de PN** é atualizada? Define se o import precisa
+   de versionamento ou se sobrescrever basta.
+7. O gabarito tem `Adição 6` **duplicada** em duas faturas, com o total da
+   adição repetido nas duas linhas (30 × 569,46 = 17.083,80, mas as duas dizem
+   34.167,60). É intencional?

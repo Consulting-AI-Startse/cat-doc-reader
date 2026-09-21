@@ -1,6 +1,7 @@
 # STRUCTURE.md — por que o repo esta assim
 
-Racional das decisoes de estrutura do `cat-doc-reader-azure`. Leia junto do `README.md`.
+Racional das decisoes de estrutura do CAT Document Reader. Leia junto do `README.md`;
+a relacao com o repo da Caterpillar esta no `CLAUDE.md`.
 
 ## Tres deployaveis (backend, frontend, function)
 
@@ -51,9 +52,22 @@ Entao:
 
 ## Banco: alembic no repo + db-setup-v2.sql
 
-`backend/alembic/` tem as migracoes (0001 inicial, 0002 packaging -> texto), fonte da
-verdade do schema. `db/db-setup-v2.sql` e o schema achatado (head 0002) pra aplicar direto
-no ambiente da CAT (Fase 0 do DEPLOY.md), gerado a partir das migracoes.
+`backend/alembic/` tem as migracoes, fonte da verdade do schema: 0001 inicial, 0002
+packaging vira texto, 0003 alarga os campos livres (incoterm, embalagem, partes
+envolvidas, moeda) depois de um incoterm real estourar VARCHAR(16).
+
+`db/db-setup-v2.sql` e o mesmo schema achatado, na **head 0003**, pra aplicar direto no
+ambiente da CAT (Fase 0 do DEPLOY.md). E **gerado, nao editado a mao**:
+
+```bash
+cd backend && alembic upgrade base:head --sql
+```
+
+e entao os tipos finais entram direto no CREATE, no lugar de CREATE + ALTER. Duas
+armadilhas ja pegaram esse arquivo: o stamp ficou em '0002' enquanto a 0003 existia (um
+ambiente novo nasceria com o schema velho), e `packaging` nasce NUMERIC na 0001, entao
+achatar so os VARCHAR deixa a coluna com o tipo errado. Depois de regerar, confira contra
+um banco migrado comparando `information_schema.columns`, nao o stamp.
 
 ## Modo local (Docling + OpenRouter): fica fora do deploy, de proposito
 
@@ -70,9 +84,11 @@ tres pontos independentes:
 - `build_extractor()` e `build_structurer()` so importam com `USE_LOCAL_EXTRACTOR` /
   `USE_LOCAL_STRUCTURER`, settings que nao existem no Function App.
 
-Nao sao substitutos: o Docling nao rotaciona pagina, e 16 das 35 paginas do CIV estao de
-cabeca para baixo ou deitadas. E o structurer local manda conteudo de documento para uma
-API de terceiros, o que e decisao de governanca, nao detalhe tecnico. Medicoes, matriz de
+Nao sao substitutos do Document Intelligence: o caminho PDF do Docling perde pagina
+escaneada inteira (62 chars nas paginas 4-6 do CIV), e a saida so volta pelo fallback que
+renderiza a pagina como imagem. Rotacao e corrigida pelo classificador de angulo do
+RapidOCR antes do OCR. E o structurer local manda conteudo de documento para uma API de
+terceiros, o que e decisao de governanca, nao detalhe tecnico. Medicoes, matriz de
 settings e procedimento de remocao em `docs/modo-local.md`.
 
 ## Fluxo de deploy (resumo)

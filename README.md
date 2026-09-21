@@ -1,50 +1,101 @@
-# cat-doc-reader-azure
+# cat-doc-reader
 
-Versao do CAT Document Reader preparada para deploy no ambiente Azure da Caterpillar.
-Tres deployaveis independentes, um por servico:
+Leitor de faturas de fornecedor da Caterpillar: sobe o PDF, o pipeline extrai os
+invoices e as linhas de part number, e um humano revisa antes de aprovar.
 
-- `frontend/` -> App Service (build estatico do Vite)
-- `backend/`  -> App Service (FastAPI, dono da persistencia). Chama a function por HTTP.
-- `function/` -> Function App (worker de IA, trigger HTTP `process_document`)
+Este repo é o **espelho da StartSe**; o deploy acontece pelo repo da Caterpillar.
+A relação entre os dois, e o que pode ou não ser espelhado, está no `CLAUDE.md`.
 
-Autenticacao no Postgres e no Blob por Managed Identity (sem senha, sem connection
-string). IA mockada por enquanto (`USE_REAL_SERVICES=false`); virar para real e config.
+Três deployáveis independentes, um por serviço:
+
+- `frontend/` → App Service (build estático do Vite)
+- `backend/` → App Service (FastAPI, dono da persistência). Não processa nada:
+  enfileira chamando a function por HTTP.
+- `function/` → Function App (worker de IA)
+
+Autenticação no Postgres e no Blob por Managed Identity na Azure (sem senha, sem
+connection string). **A IA real está em produção** — Document Intelligence
+(`prebuilt-layout`) para OCR e Azure OpenAI (`gpt-4.1`) para estruturar.
+`USE_REAL_SERVICES=false` cai em mock.
+
+## Como um documento é processado
+
+```
+upload  ->  backend grava o blob e chama a function (HTTP)
+        ->  process_document enfileira em 'document-processing'
+        ->  process_document_worker (queue trigger) faz o trabalho pesado
+        ->  extractor (OCR) -> structurer (LLM) -> validações -> banco
+        ->  status extracted | needs_review | error
+```
+
+São **três funções**, não uma (`function/function_app.py`):
+
+| função | gatilho | papel |
+|---|---|---|
+| `process_document` | HTTP POST | só enfileira e responde na hora |
+| `process_document_worker` | fila `document-processing` | o processamento de verdade |
+| `process_document_poison` | fila `...-poison` | mensagem que falhou 2 vezes |
+
+A fila existe porque documento grande estourava o timeout do gatilho HTTP: 35
+páginas não cabem em uma requisição síncrona.
 
 ## Estrutura
 
 ```
-shared/              fonte unica do dominio (config, db, models, storage) + pyproject
+shared/              fonte unica do dominio (config, db, models, storage)
   shared/            o pacote em si (import `from shared...`)
-backend/             FastAPI  -> App Service
-  app/               rotas /documents e /dashboard; processing.py chama a function
-  alembic/           migracoes (0001 inicial, 0002 packaging -> texto) do schema v2
-  pyproject.toml     uv (shared por path dep) + indice do Artifactory
-  requirements.txt   gerado do uv, third-party (o Oryx da Azure instala daqui)
-  shared/            VENDORIZADO por scripts/build (gitignored)
+backend/             FastAPI -> App Service
+  app/api/           rotas /documents e /dashboard
+  app/processing.py  chama a function (nao processa)
+  alembic/versions/  migracoes 0001..0003
 function/            Function App (worker de IA)
-  function_app.py    trigger HTTP process_document
-  worker.py, pipeline/
-  pyproject.toml     uv + indice do Artifactory
-  requirements.txt   gerado do uv (a Function exige requirements.txt no remote build)
-  shared/            VENDORIZADO por scripts/build (gitignored)
+  function_app.py    os tres gatilhos acima
+  doc_worker.py      orquestra: storage -> extractor -> structurer -> banco
+  pipeline/          extractor.py (OCR) e structurer.py (LLM)
 frontend/            React + Vite + Tailwind -> App Service
-db/                  db-setup-v2.sql (schema v2; aplicar antes, ver DEPLOY.md Fase 0)
-scripts/             build.sh / build.ps1 (vendoriza o shared antes do deploy)
+db/db-setup-v2.sql   schema achatado na head 0003 (GERADO, ver STRUCTURE.md)
+docs/modo-local.md   modo local de desenvolvimento (Docling + OpenRouter)
+docs/cat-cd/         workflows do CD da CAT, so como referencia
+scripts/build.sh     vendoriza o shared antes do deploy
 ```
 
-## shared unico + vendoring (por que assim)
+## shared único + vendoring (por que assim)
 
-O `shared` e a fonte da verdade em UM lugar so: `shared/shared/`. Backend e function
-importam `from shared...`. Em dev, cada um usa o shared como dependencia de path do uv
-(`shared = { path = "../shared", editable = true }`). No deploy, cada servico vira um zip
-self-contained na Azure (nao existe `../shared` la dentro), entao `scripts/build` copia
-`shared/shared/` pra dentro de `backend/shared/` e `function/shared/` antes de empacotar.
-Essas copias sao gitignored: **edite sempre em `shared/shared/`, nunca nas copias.**
+O `shared` é a fonte da verdade em UM lugar: `shared/shared/`. Backend e function
+importam `from shared...`. No deploy, cada serviço vira um zip self-contained na
+Azure (não existe `../shared` lá dentro), então `scripts/build.sh` copia
+`shared/shared/` para `backend/shared/` e `function/shared/`.
 
-O racional completo das decisoes de estrutura esta em `STRUCTURE.md`.
+Essas cópias são gitignored: **edite sempre em `shared/shared/`, nunca nas
+cópias.** O racional completo está em `STRUCTURE.md`.
 
-## Rodar / deployar
+## Rodar local
 
-- Deploy passo a passo (CLI az, da VM da CAT): `DEPLOY.md`. Rode `scripts/build` antes de
-  empacotar backend e function.
-- Schema do banco (aplicar antes, Fase 0): `db/db-setup-v2.sql`.
+```bash
+./start-local.sh          # azurite, function, backend e frontend
+./start-local.sh --status
+./stop-local.sh
+```
+
+Pré-requisitos e o modo local de IA (Docling no lugar do Document Intelligence,
+OpenRouter no lugar do Azure OpenAI) estão em `docs/modo-local.md`. No
+Windows/VM o equivalente é o `start-local.ps1`.
+
+## Testes
+
+```bash
+python check_rules.py        # _num e PART_NUMBER_RE contra as 28 faturas reais
+python check_structurer.py   # structurer contra o gabarito do cliente
+cd function && python -c "import function_app"
+```
+
+O `import function_app` **antes de qualquer publish**: já subimos uma vez um
+módulo que compilava mas não importava, e a function respondeu 404 em produção
+até alguém rodar isso.
+
+## Backlog e deploy
+
+- Próximas features, ponderadas: `BACKLOG.md`
+- Deploy passo a passo (CLI az, da VM da CAT): `DEPLOY.md`. Rode
+  `scripts/build.sh` antes de empacotar.
+- Schema do banco (Fase 0): `db/db-setup-v2.sql`.

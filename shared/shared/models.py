@@ -82,7 +82,9 @@ class Invoice(Base):
 
     invoice_number: Mapped[str | None] = mapped_column(String(128), index=True)
     invoice_date: Mapped[date | None] = mapped_column(Date)
-    currency: Mapped[str | None] = mapped_column(String(3))
+    # String(16), nao (3): a migracao 0003 alargou depois de um documento
+    # trazer moeda fora do padrao ISO de tres letras.
+    currency: Mapped[str | None] = mapped_column(String(16))
     total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
 
     created_at: Mapped[datetime] = mapped_column(
@@ -110,13 +112,16 @@ class InvoicePartNumberItem(Base):
     unit_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     purchase_order: Mapped[str | None] = mapped_column(String(128), index=True)
-    incoterm: Mapped[str | None] = mapped_column(String(16))
-    country_of_origin: Mapped[str | None] = mapped_column(String(128))
+    # Text, nao String(n): a 0003 alargou os seis campos abaixo depois de um
+    # incoterm real estourar VARCHAR(16). Campo livre de documento nao tem
+    # tamanho previsivel.
+    incoterm: Mapped[str | None] = mapped_column(Text)
+    country_of_origin: Mapped[str | None] = mapped_column(Text)
     domestic_freight: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
-    packaging: Mapped[str | None] = mapped_column(String(128))
-    exporter: Mapped[str | None] = mapped_column(String(256))
-    supplier: Mapped[str | None] = mapped_column(String(256))
-    manufacturer: Mapped[str | None] = mapped_column(String(256))
+    packaging: Mapped[str | None] = mapped_column(Text)
+    exporter: Mapped[str | None] = mapped_column(Text)
+    supplier: Mapped[str | None] = mapped_column(Text)
+    manufacturer: Mapped[str | None] = mapped_column(Text)
 
     invoice: Mapped[Invoice] = relationship(back_populates="line_items")
 
