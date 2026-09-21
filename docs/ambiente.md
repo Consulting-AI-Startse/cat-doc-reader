@@ -12,7 +12,7 @@ acrescentar uma dependência de ambiente, atualize aqui na mesma leva.
 |---|---|---|
 | Node | 22.22.2 | frontend (Vite) |
 | npm | 10.9.7 | |
-| uv | 0.9.26 | ambientes Python de backend e function |
+| uv | 0.10.7 | ambientes Python de backend e function |
 | Azure Functions Core Tools | 4.14.0 | roda a function local (`func start`) |
 | Azurite | 3.37.0 | Blob (10000) e Queue (10001) |
 | PostgreSQL | 15.17 | serviço do sistema, não container |
@@ -27,7 +27,7 @@ npm i -g azurite azure-functions-core-tools@4
 
 | onde | versão | por quê |
 |---|---|---|
-| `function/.venv` | **3.11.15** | é o runtime do Function App na Azure (`linuxFxVersion: Python\|3.11`) |
+| `function/.venv` | **3.11.14** | é o runtime do Function App na Azure (`linuxFxVersion: Python\|3.11`) |
 | `backend/.venv` | 3.14.2 | o que `backend/pyproject.toml` declara |
 
 A da function tem de ser 3.11 para o local bater com produção. Note que
