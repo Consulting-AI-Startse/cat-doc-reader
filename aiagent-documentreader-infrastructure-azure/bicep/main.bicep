@@ -129,10 +129,9 @@ module appServiceFastApi 'app-service.json' = {
   params: {
     appServiceName: appServiceFastApiName
     appServicePlanName: appServicePlanBackendName
-    // CONFERIR NA VM antes do deploy: tem de ser exatamente o linuxFxVersion que
-    // o servico roda hoje (az webapp config show --query linuxFxVersion).
-    // O backend fica em 3.14 de proposito; quem tem de continuar compativel com
-    // a 3.11 da function e o shared/, que vai para as duas aplicacoes.
+    // Conferido contra o servico em 27/09: linuxFxVersion='PYTHON|3.14', hoje
+    // aplicado a mao. O backend fica em 3.14 de proposito; quem tem de continuar
+    // compativel com a 3.11 da function e o shared/, que vai para as duas.
     PlatformInfo: { linuxPlatformVersion: 'PYTHON|3.14' }
     AlwaysOn: 'true'
     // Sem caminho de health check a plataforma sonda '/', que o backend nao

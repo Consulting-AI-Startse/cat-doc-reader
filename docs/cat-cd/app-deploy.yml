@@ -1,0 +1,400 @@
+# Deploy da aplicacao: so o servico que mudou.
+#
+# Separado do provisionamento de proposito. O aiagent-documentreader-infra-
+# provision.yml continua sendo workflow_dispatch manual, porque todo run dele
+# apaga as application settings da function (o functions.json monta
+# siteConfig.appSettings como um concat(...) fechado). Se o provisionamento
+# disparasse sozinho num push, a function ficaria mal configurada sem ninguem
+# olhando -- e mal configurada aqui quer dizer SILENCIOSAMENTE mockada, porque
+# use_real_services tem default False em shared/config.py.
+name: AI Agent Document Reader — Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'function/**'
+      - 'shared/shared/**'
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'O que publicar'
+        required: true
+        default: 'settings-only'
+        type: choice
+        options: [frontend, backend, function, all, settings-only]
+
+env:
+  PROJECTNAME: aiagent-documentreader
+  ENVIRONMENT: pov
+
+jobs:
+  # ==========================================================================
+  # O que mudou
+  # ==========================================================================
+  changes:
+    name: Decidir o que publicar
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.f.outputs.frontend }}
+      backend:  ${{ steps.f.outputs.backend }}
+      function: ${{ steps.f.outputs.function }}
+      migrate:  ${{ steps.f.outputs.migrate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: f
+        name: Comparar os caminhos
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            s='${{ inputs.service }}'
+            fe=false; be=false; fn=false
+            [ "$s" = "frontend" ] || [ "$s" = "all" ] && fe=true
+            [ "$s" = "backend"  ] || [ "$s" = "all" ] && be=true
+            [ "$s" = "function" ] || [ "$s" = "all" ] && fn=true
+            # Migracao nunca sai de dispatch generico: tem job proprio.
+            echo "frontend=$fe" >> "$GITHUB_OUTPUT"
+            echo "backend=$be"  >> "$GITHUB_OUTPUT"
+            echo "function=$fn" >> "$GITHUB_OUTPUT"
+            echo "migrate=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base='${{ github.event.before }}'
+          # Primeiro push numa branch nova vem com before zerado.
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse HEAD~1)"
+          fi
+          changed="$(git diff --name-only "$base" HEAD)"
+          echo "$changed"
+
+          has() { echo "$changed" | grep -qE "$1"; }
+
+          fe=false; be=false; fn=false; mg=false
+          has '^frontend/'      && fe=true
+          has '^backend/'       && be=true
+          has '^function/'      && fn=true
+          # shared/shared/ e a fonte unica das DUAS aplicacoes: mexeu ali, os
+          # dois servicos tem de subir juntos, senao backend e function passam a
+          # rodar versoes diferentes do mesmo dominio.
+          has '^shared/shared/' && { be=true; fn=true; }
+          # Migracao so dispara com arquivo novo em versions/.
+          has '^backend/alembic/versions/' && mg=true
+
+          echo "frontend=$fe" >> "$GITHUB_OUTPUT"
+          echo "backend=$be"  >> "$GITHUB_OUTPUT"
+          echo "function=$fn" >> "$GITHUB_OUTPUT"
+          echo "migrate=$mg"  >> "$GITHUB_OUTPUT"
+
+  # ==========================================================================
+  # Migracao de banco -- antes do codigo que depende dela
+  # ==========================================================================
+  #
+  # PRE-REQUISITOS DE REDE E PERMISSAO, hoje nao atendidos por runner hospedado:
+  #   1. o runner precisa alcancar o Postgres; a allow-list do firewall tem os
+  #      IPs de saida do Function App, nao as faixas do GitHub;
+  #   2. o service principal do CD precisa ser principal no Postgres, com
+  #      direito de DDL.
+  # Ate os dois existirem, aponte DB_RUNNER_LABEL para um runner dentro da rede
+  # da CAT; sem isso o job falha no connect e a migracao segue manual na VM.
+  migrate:
+    name: alembic upgrade head
+    needs: changes
+    if: needs.changes.outputs.migrate == 'true'
+    runs-on: ${{ vars.DB_RUNNER_LABEL || 'ubuntu-latest' }}
+    environment: pov
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - uses: azure/login@v2
+        with:
+          environment: AzureCloud
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Vendorizar o shared
+        run: bash scripts/build.sh
+
+      - run: pip install -r backend/requirements.txt
+
+      - name: Mostrar o que vai ser aplicado
+        working-directory: backend
+        env:
+          DB_USE_ENTRA_TOKEN: 'true'
+          DATABASE_URL: postgresql+psycopg://${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice@${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-postgresql-server.postgres.database.azure.com:5432/documentreader?sslmode=require
+        run: alembic upgrade head --sql
+
+      - name: Aplicar
+        working-directory: backend
+        env:
+          DB_USE_ENTRA_TOKEN: 'true'
+          DATABASE_URL: postgresql+psycopg://${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice@${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-postgresql-server.postgres.database.azure.com:5432/documentreader?sslmode=require
+        run: alembic upgrade head
+
+  # ==========================================================================
+  # Frontend
+  # ==========================================================================
+  frontend:
+    name: Publicar frontend
+    needs: [changes, migrate]
+    if: always() && needs.changes.outputs.frontend == 'true' && !failure() && !cancelled()
+    runs-on: ubuntu-latest
+    environment: pov
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - uses: azure/login@v2
+        with:
+          environment: AzureCloud
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # O server.js e o dist/ sobem juntos: e ele que serve o bundle com
+      # fallback de SPA. Sem ele o App Service nao tem o que executar.
+      - name: Empacotar
+        working-directory: frontend
+        run: zip -r ../frontend.zip dist server.js package.json
+
+      - name: Publicar
+        run: |
+          az webapp deploy -g "${{ vars.RESOURCEGROUPNAME }}" \
+            -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-frontend-appservice" \
+            --src-path frontend.zip --type zip
+
+      # B1: o appCommandLine nao tem caminho de IaC (o app-service.json nao
+      # expoe a propriedade), entao e reaplicado aqui a cada deploy. Sem ele o
+      # container sobe o entrypoint da imagem em vez da aplicacao.
+      - name: Startup command (B1)
+        run: |
+          az webapp config set -g "${{ vars.RESOURCEGROUPNAME }}" \
+            -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-frontend-appservice" \
+            --startup-file "node server.js"
+
+  # ==========================================================================
+  # Backend
+  # ==========================================================================
+  backend:
+    name: Publicar backend
+    needs: [changes, migrate]
+    if: always() && needs.changes.outputs.backend == 'true' && !failure() && !cancelled()
+    runs-on: ubuntu-latest
+    environment: pov
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # Sem isto o zip sobe sem backend/shared/ (gitignored) e o import quebra
+      # no boot.
+      - name: Vendorizar o shared
+        run: bash scripts/build.sh
+
+      - uses: azure/login@v2
+        with:
+          environment: AzureCloud
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Empacotar
+        working-directory: backend
+        run: zip -r ../backend.zip . -x '.venv/*' '*__pycache__/*'
+
+      - name: Publicar
+        run: |
+          az webapp deploy -g "${{ vars.RESOURCEGROUPNAME }}" \
+            -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice" \
+            --src-path backend.zip --type zip
+
+      - name: Startup command (B1)
+        run: |
+          az webapp config set -g "${{ vars.RESOURCEGROUPNAME }}" \
+            -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice" \
+            --startup-file "python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+      - name: Smoke test
+        run: |
+          host="${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice"
+          # Montado em pedacos: o filtro de e-mail reescreve enderecos literais,
+          # e este arquivo ja viajou por e-mail uma vez.
+          dom=$(printf '%s.%s' azurewebsites net)
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://${host}.${dom}/health" || true)
+            [ "$code" = "200" ] && { echo "health OK"; exit 0; }
+            sleep 10
+          done
+          echo "::error::/health nao respondeu 200 em 5 minutos"; exit 1
+
+  # ==========================================================================
+  # Function
+  # ==========================================================================
+  function:
+    name: Publicar function
+    needs: [changes, migrate]
+    if: always() && needs.changes.outputs.function == 'true' && !failure() && !cancelled()
+    runs-on: ubuntu-latest
+    environment: pov
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Vendorizar o shared
+        run: bash scripts/build.sh
+
+      # Ultima barreira antes de publicar. Ja subimos um modulo que compilava e
+      # nao importava, e a function respondeu 404 ate alguem rodar isto.
+      - name: import function_app
+        run: |
+          pip install -r function/requirements.txt
+          cd function && python -c "import function_app"
+
+      - uses: azure/login@v2
+        with:
+          environment: AzureCloud
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-backend-function
+          package: function
+          scm-do-build-during-deployment: true
+          enable-oryx-build: true
+
+  # ==========================================================================
+  # B2: reaplicar as application settings, e conferir que ficaram
+  # ==========================================================================
+  #
+  # Este job e a alternativa fraca, e e fraca de um jeito especifico: o que ele
+  # aplica morre no proximo run de provisionamento, inclusive um disparado por
+  # policy remediation em vez de por nos. Por isso ele tambem e chamavel sozinho
+  # (workflow_dispatch -> settings-only), para rodar depois de qualquer run de
+  # infraestrutura sem republicar codigo.
+  settings:
+    name: Settings da function (B2)
+    needs: [changes, function]
+    if: >-
+      always() && !cancelled() &&
+      (needs.function.result == 'success' || inputs.service == 'settings-only')
+    runs-on: ubuntu-latest
+    environment: pov
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: azure/login@v2
+        with:
+          environment: AzureCloud
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Aplicar
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREFIX="${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}"
+          RG="${{ vars.RESOURCEGROUPNAME }}"
+          FUNC="${PREFIX}-backend-function"
+
+          # Mesmo calculo do main.bicep:
+          #   toLower(take(replace(projectName,'-','') + environment + uniqueString(rg), 24))
+          # Aqui o prefixo ja fecha 24 caracteres, entao o uniqueString e
+          # truncado inteiro e o nome e deterministico. Isso e coincidencia de
+          # comprimento, nao garantia -- o passo seguinte confere.
+          ST=$(echo "${{ env.PROJECTNAME }}${{ env.ENVIRONMENT }}" | tr -d '-' | cut -c1-24 | tr 'A-Z' 'a-z')
+          az storage account show -g "$RG" -n "$ST" -o none \
+            || { echo "::error::storage derivado '$ST' nao existe: a derivacao do nome saiu do lugar"; exit 1; }
+
+          PGHOST="${PREFIX}-postgresql-server.postgres.database.azure.com"
+
+          az functionapp config appsettings set -g "$RG" -n "$FUNC" --output none --settings \
+            "DATABASE_URL=postgresql+psycopg://${FUNC}@${PGHOST}:5432/documentreader?sslmode=require" \
+            "DB_USE_ENTRA_TOKEN=true" \
+            "AZURE_STORAGE_ACCOUNT_URL=https://${ST}.blob.core.windows.net" \
+            "BLOB_CONTAINER_NAME=invoices" \
+            "AZURE_DOCINTEL_ENDPOINT=https://${PREFIX}-ai-docintelligence.cognitiveservices.azure.com/" \
+            "AZURE_OPENAI_ENDPOINT=https://${PREFIX}-openai.openai.azure.com/" \
+            "USE_REAL_SERVICES=true" \
+            "AZURE_OPENAI_DEPLOYMENT=gpt-4.1" \
+            "AZURE_OPENAI_API_VERSION=2024-10-21" \
+            "AZURE_DOCINTEL_HIGH_RES=false"
+
+      # Conferir por tamanho, nunca a olho: o 'az ... -o table' reflui valores
+      # longos, e isso ja nos fez diagnosticar um FUNCTION_URL truncado como
+      # ausente. Valor nenhum e impresso.
+      - name: Verificar
+        shell: bash
+        run: |
+          set -euo pipefail
+          RG="${{ vars.RESOURCEGROUPNAME }}"
+          FUNC="${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-backend-function"
+
+          az functionapp config appsettings list -g "$RG" -n "$FUNC" \
+            --query "[].{n:name,len:length(value)}" -o tsv > /tmp/settings.tsv
+
+          falhou=0
+          # nome:tamanho minimo esperado
+          for par in \
+            DATABASE_URL:100 DB_USE_ENTRA_TOKEN:4 AZURE_STORAGE_ACCOUNT_URL:40 \
+            BLOB_CONTAINER_NAME:8 AZURE_DOCINTEL_ENDPOINT:60 AZURE_OPENAI_ENDPOINT:40 \
+            USE_REAL_SERVICES:4 AZURE_OPENAI_DEPLOYMENT:7 AZURE_OPENAI_API_VERSION:10 \
+            AZURE_DOCINTEL_HIGH_RES:4
+          do
+            nome="${par%%:*}"; minimo="${par##*:}"
+            tam=$(awk -v n="$nome" '$1==n {print $2}' /tmp/settings.tsv)
+            if [ -z "$tam" ]; then
+              echo "::error::$nome AUSENTE"; falhou=1
+            elif [ "$tam" -lt "$minimo" ]; then
+              echo "::error::$nome truncado: $tam caracteres, esperado >= $minimo"; falhou=1
+            else
+              echo "  ok  $nome ($tam)"
+            fi
+          done
+
+          # use_real_services tem default False em shared/config.py: se esta
+          # setting sumir, a function volta a rodar MOCKADA em producao sem
+          # emitir um unico erro. E o pior modo de falha da lista.
+          [ "$(awk '$1=="USE_REAL_SERVICES" {print $2}' /tmp/settings.tsv)" = "4" ] \
+            || { echo "::error::USE_REAL_SERVICES nao e 'true' -- a function esta mockada"; falhou=1; }
+
+          exit $falhou
