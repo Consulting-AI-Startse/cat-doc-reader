@@ -39,10 +39,19 @@ o patch chega até lá e quem abre o PR está na seção seguinte.
 | `backend/`, `frontend/` | `function/pipeline/extractor_local.py` |
 | `shared/shared/` | `function/pipeline/structurer_local.py` |
 | `function/pipeline/structurer.py`, `extractor.py` | `function/requirements-local.txt` |
-| `function/doc_worker.py`, `function_app.py` | `start-local.sh`, `stop-local.sh` |
+| `function/doc_worker.py`¹, `function_app.py` | `start-local.sh`, `stop-local.sh` |
 | `backend/alembic/versions/`, `db/db-setup-v2.sql` | `docs/modo-local.md`, `docs/cat-cd/` |
 | `check_rules.py`, `check_structurer.py` | `.env.local`, `.local/` |
 | `aiagent-documentreader-infrastructure-azure/` | as linhas locais do `.funcignore` |
+
+¹ **O `doc_worker.py` diverge dos dois lados de propósito, para sempre.** Os
+blocos `if settings.use_local_extractor:` e `if settings.use_local_structurer:`
+em `build_extractor()` e `build_structurer()` **só existem aqui** — lá eles
+foram retirados, e importam `pipeline/extractor_local` / `structurer_local`, que
+nunca espelham. Consequência prática: **um `git diff` deste arquivo não aplica
+lá**, porque o contexto tem ~24 linhas a mais. Já custou uma leva inteira.
+Quando este arquivo mudar, mande o arquivo pronto, não o diff — e retire os dois
+blocos antes.
 
 Três armadilhas de espelhamento, todas capazes de quebrar a produção:
 
@@ -126,6 +135,21 @@ Para cada leva de mudancas que precisa ir para a VM, produza **quatro coisas**:
 4. **Nome de branch e descricao de PR sugeridos**, prontos para o Luis usar.
    Branch no padrao `fix/...` ou `feat/...`, descricao dizendo o que muda, por
    que, e como conferir.
+
+### Mande arquivo pronto, não diff
+
+Um `git diff` exige que o outro lado esteja exatamente onde você pensa que está,
+e essa suposição já falhou duas vezes seguidas: uma pela leva anterior já ter
+sido aplicada lá, outra pelos blocos de modo local do `doc_worker.py`. O
+diagnóstico custou mais que o transporte.
+
+Então: **transporte é zip dos arquivos finais, em base64**, com o SHA-256 do
+`.b64` e do `.zip`. Sem contexto para casar, sem CRLF para negociar. O `git
+diff` continua sendo como se revisa aqui; só deixou de ser o formato de envio.
+
+E antes de sobrescrever qualquer arquivo que já existe lá, **confira o hash do
+que está lá** contra o que você usou de base. Se não bater, pare: pode haver
+trabalho que só existe do lado da CAT, e lá é a referência.
 
 ### O transporte tem de preservar os bytes
 
