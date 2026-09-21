@@ -109,11 +109,14 @@ Para cada leva de mudancas que precisa ir para a VM, produza **quatro coisas**:
 
 1. **O diff em `.txt`**, escopado so ao que espelha (ver a tabela acima). Nunca
    incluir os arquivos do modo local.
-2. **O SHA-256 do arquivo**, para conferir na chegada. E o que separa "chegou
-   corrompido" de um erro cifrado do `git apply` meia hora depois.
+2. **O SHA-256 dos dois arquivos**, o `.b64` transportado e o `.patch` que sai
+   dele. O do `.b64` e o que importa: conferido antes de decodificar, separa
+   "chegou corrompido" de um erro cifrado do `certutil` ou do `git apply` meia
+   hora depois.
 3. **Os comandos de Windows/PowerShell** para aplicar, conferir e testar --
-   prontos para colar, sem depender de `python` no PATH (na VM nao esta; usar
-   `.\function\.venv\Scripts\python.exe`).
+   prontos para colar, rodando **a partir de `Downloads`** (nada de transporte
+   entra no repo, ver abaixo) e sem depender de `python` no PATH (na VM nao
+   esta; usar `.\function\.venv\Scripts\python.exe`).
 4. **Nome de branch e descricao de PR sugeridos**, prontos para o Luis usar.
    Branch no padrao `fix/...` ou `feat/...`, descricao dizendo o que muda, por
    que, e como conferir.
@@ -125,13 +128,36 @@ e nomes terminados em `.py` (`.py` e TLD do Paraguai), e isso ja corrompeu os
 proprios cabecalhos `diff --git`, deixando o patch inaplicavel.
 
 Entao, na pratica: gere o diff, **codifique em base64** e mande o `.txt` do
-base64. Nao sobra nada que o filtro reconheca, e a decodificacao na VM e uma
-linha:
+base64. Nao sobra nada que o filtro reconheca.
+
+**Isto vale para o arquivo de instrucoes tambem, nao so para o patch.** A leva
+do poison handler mandou o LEIA-ME em texto puro e o filtro reescreveu os nomes
+dos arquivos dentro dele (`function/doc_worker` + a extensao virou um link do
+urldefense). O patch, em base64, chegou intacto ao lado.
+
+### Nada de transporte entra no repo
+
+O `.b64`, o `.patch` e o LEIA-ME **ficam em `Downloads` na VM e nunca sao
+copiados para dentro do repo**. Decodifique e confira ali; aplique de fora para
+dentro, com caminho absoluto. Um arquivo de transporte deixado na arvore e
+esquecido sobe para o repo da CAT -- ja aconteceu com o `cat-fixes.patch`, que
+precisou de `git rm --cached` + amend antes do PR.
 
 ```powershell
+cd $env:USERPROFILE\Downloads
+(Get-Item .\p.b64).Length                                    # confere o b64 ANTES
+(Get-FileHash .\p.b64 -Algorithm SHA256).Hash.ToLower()      # de decodificar
 certutil -decode .\p.b64 .\cat.patch
-(Get-FileHash .\cat.patch -Algorithm SHA256).Hash.ToLower()   # tem de bater
+(Get-FileHash .\cat.patch -Algorithm SHA256).Hash.ToLower()  # tem de bater
+
+cd <raiz do repo da CAT>
+git apply --check "$env:USERPROFILE\Downloads\cat.patch"
+git apply "$env:USERPROFILE\Downloads\cat.patch"
+git status --short   # so os arquivos modificados; nenhum '??'
 ```
+
+Conferir o hash do proprio `.b64` antes de decodificar e o que separa "chegou
+corrompido" de um erro cifrado do `certutil` ou do `git apply` depois.
 
 ## Rodar e testar
 
