@@ -42,13 +42,19 @@ o patch chega até lá e quem abre o PR está na seção seguinte.
 | `function/doc_worker.py`, `function_app.py` | `start-local.sh`, `stop-local.sh` |
 | `backend/alembic/versions/`, `db/db-setup-v2.sql` | `docs/modo-local.md`, `docs/cat-cd/` |
 | `check_rules.py`, `check_structurer.py` | `.env.local`, `.local/` |
-| | as linhas locais do `.funcignore` |
+| `aiagent-documentreader-infrastructure-azure/` | as linhas locais do `.funcignore` |
 
-Duas armadilhas de espelhamento, ambas capazes de quebrar a produção:
+Três armadilhas de espelhamento, todas capazes de quebrar a produção:
 
-- **A ausência de `.github/` aqui é deliberada** (os workflows foram para
-  `docs/cat-cd/` como referência). Propagar isso **apaga o CD da CAT**. Lá eles
-  precisam continuar em `.github/workflows/`.
+- **A ausência de `.github/` aqui é deliberada** (os workflows de infraestrutura
+  foram para `docs/cat-cd/` como referência). Propagar isso **apaga o CD da
+  CAT**. Lá eles precisam continuar em `.github/workflows/`.
+- **Os workflows de aplicação são a exceção que espelha.** `app-ci.yml` e
+  `app-deploy.yml` moram em
+  `aiagent-documentreader-infrastructure-azure/workflows/`, diretório que existe
+  igual dos dois lados — então vão no patch, por caminho. Mas **o Actions só
+  executa workflow de `.github/workflows/`**: do lado da CAT eles precisam ser
+  copiados para lá. Espelhar o arquivo não é o mesmo que ativá-lo.
 - **`.github/variables/*.env` foi removido do histórico deste repo** — carregava
   subscription ID, object ID de grupo AAD e client IDs da Caterpillar. Não
   recriar aqui, e não propagar a remoção para lá.
@@ -254,5 +260,8 @@ backend/alembic/     migracoes; db/db-setup-v2.sql e gerado delas
 docs/ambiente.md     ferramentas e versoes do ambiente local
 docs/modo-local.md   modo local de IA
 docs/sync-cat.md     log do que ja foi espelhado para a CAT
-docs/cat-cd/         CD da CAT, so referencia -- nao roda daqui
+docs/cat-cd/         CD de infraestrutura da CAT, so referencia -- nao roda daqui
+aiagent-documentreader-infrastructure-azure/
+  bicep/             main.bicep e rbac.bicep (espelham)
+  workflows/         app-ci.yml e app-deploy.yml (espelham; ativar em .github/)
 ```

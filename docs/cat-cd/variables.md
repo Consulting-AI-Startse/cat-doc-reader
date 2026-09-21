@@ -44,6 +44,9 @@ que tambem tem as secrets de OIDC e do JFrog.
 
 ## Ao sincronizar com o repo da CAT
 
-Nunca propague a ausencia destes arquivos para la. Sincronize por diretorio de
-aplicacao (`backend/`, `frontend/`, `function/`, `shared/`) e deixe `.github/`
-e `aiagent-documentreader-infrastructure-azure/` fora do escopo.
+Nunca propague a ausencia destes arquivos para la, e deixe `.github/` fora do
+escopo do patch.
+
+O `aiagent-documentreader-infrastructure-azure/` **passou a espelhar** (o
+`main.bicep` e os workflows de aplicacao mudam daqui). O que continua fora e so
+o `.github/`, por causa das variaveis e dos workflows de infraestrutura.
