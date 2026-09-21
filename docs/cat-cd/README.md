@@ -29,9 +29,13 @@ original porque não é executável por si só.
 | `aiagent-documentreader-infra-provision.yml` | baixa os templates governados do JFrog, monta os artefatos e chama o deploy |
 | `aiagent-documentreader-infra-deploy.yml` | aplica `main.bicep` e `rbac.bicep` no resource group |
 | `deploy-model.yml` | publica deployments de modelo no Azure OpenAI (`modelVersionPairs`) |
-| `app-ci.yml` | **novo** — portão de testes da aplicação; não publica nada |
-| `app-deploy.yml` | **novo** — publica só o serviço que mudou, e reaplica as settings |
 | `variables.md` | chaves esperadas dos três `.env`, sem valores |
+
+Os dois workflows de aplicação **não ficam aqui**: moram em
+`aiagent-documentreader-infrastructure-azure/workflows/`, que é o diretório que
+já existe igual no repo da CAT — então espelham por caminho, sem transporte
+especial. Do lado de lá eles precisam ser copiados para `.github/workflows/`
+para rodar; o GitHub Actions só executa workflow de lá.
 
 ## Os dois workflows de aplicação
 
@@ -105,16 +109,29 @@ O passo de verificação confere por `length(value)`, nunca a olho — o
 `az ... -o table` reflui valores longos, e isso já nos fez diagnosticar um
 `FUNCTION_URL` truncado como ausente.
 
-### O que ainda não está de pé
+### A migração roda dentro do container, não no runner
 
-O job `migrate` precisa de duas coisas que hoje não existem:
+O runner não alcança o Postgres — a allow-list do firewall tem os IPs de saída
+do Function App, não as faixas do GitHub — e o service principal do CD não é
+principal no banco. Os dois problemas somem executando `alembic` **dentro do
+container do fastapi**, que já está na rede e já tem a Managed Identity com
+direito no schema. É o mesmo caminho de entrar pelo webssh e rodar à mão; o job
+só tira o humano do meio, pela API de comando do SCM.
 
-1. **caminho de rede até o Postgres.** A allow-list do firewall tem os IPs de
-   saída do Function App, não as faixas dos runners do GitHub.
-2. **o service principal do CD como principal no Postgres**, com direito de DDL.
+Duas consequências:
 
-Até os dois existirem, aponte a variável `DB_RUNNER_LABEL` para um runner dentro
-da rede da CAT. Sem isso o job falha no connect e a migração segue manual na VM.
+- **A migração roda depois do deploy do backend**, não antes: o arquivo da
+  migração precisa estar no `wwwroot`. Existe uma janela curta em que o código
+  novo vê o schema velho. Para migração destrutiva, use o dispatch manual e
+  coordene a ordem.
+- A conferência é `alembic check`, que compara os models contra o schema real.
+  `alembic current` só lê o carimbo, e uma migração pode estar carimbada sem
+  estar aplicada.
+
+**Falta confirmar uma coisa** antes de confiar nesse job: no App Service Linux,
+`POST /api/command` pode executar no container do Kudu em vez do container da
+aplicação — e no do Kudu não existe `alembic`. A sondagem está no fim deste
+arquivo.
 
 ### Variáveis e secrets que os dois esperam
 
@@ -123,7 +140,21 @@ da rede da CAT. Sem isso o job falha no connect e a migração segue manual na V
 | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | secret | login OIDC |
 | `RESOURCEGROUPNAME` | variable | todos os comandos `az` |
 | `PIP_INDEX_URL` | variable (opcional) | Artifactory, se PyPI estiver bloqueado |
-| `DB_RUNNER_LABEL` | variable (opcional) | runner com acesso ao Postgres |
+
+## Sondagem pendente: em que container o /api/command roda
+
+Uma requisição resolve. Se imprimir o caminho do alembic, o job `migrate`
+funciona como está; se disser que não achou o módulo, o comando está caindo no
+container do Kudu e a migração precisa de outro caminho.
+
+```powershell
+$APP  = "aiagent-documentreader-pov-fastapi-appservice"
+$dom  = ("azurewebsites","net") -join "."
+$tok  = (az account get-access-token --resource https://management.azure.com --query accessToken -o tsv).Trim()
+$body = '{"command":"python -c \"import alembic,sys;print(alembic.__file__);print(sys.executable)\"","dir":"/home/site/wwwroot"}'
+curl.exe -s -X POST "https://$APP.scm.$dom/api/command" `
+  -H "Authorization: Bearer $tok" -H "Content-Type: application/json" -d $body
+```
 
 ## Ao sincronizar com o repo da CAT
 

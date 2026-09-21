@@ -94,32 +94,29 @@ jobs:
           echo "migrate=$mg"  >> "$GITHUB_OUTPUT"
 
   # ==========================================================================
-  # Migracao de banco -- antes do codigo que depende dela
+  # Migracao de banco -- executada DENTRO do container do fastapi
   # ==========================================================================
   #
-  # PRE-REQUISITOS DE REDE E PERMISSAO, hoje nao atendidos por runner hospedado:
-  #   1. o runner precisa alcancar o Postgres; a allow-list do firewall tem os
-  #      IPs de saida do Function App, nao as faixas do GitHub;
-  #   2. o service principal do CD precisa ser principal no Postgres, com
-  #      direito de DDL.
-  # Ate os dois existirem, aponte DB_RUNNER_LABEL para um runner dentro da rede
-  # da CAT; sem isso o job falha no connect e a migracao segue manual na VM.
+  # Nao adianta o runner falar com o Postgres: a allow-list do firewall tem os
+  # IPs de saida do Function App, nao as faixas do GitHub, e o principal do CD
+  # nao existe no banco. O App Service resolve os dois -- esta na rede e tem a
+  # Managed Identity com direito no schema. E o mesmo caminho de quando se entra
+  # pelo webssh e se roda alembic a mao; aqui so nao tem humano.
+  #
+  # Por isso roda DEPOIS do backend: o arquivo da migracao precisa estar no
+  # wwwroot. A janela em que o codigo novo ve o schema velho e curta e so
+  # importa em migracao destrutiva -- para essas, use o dispatch manual e
+  # coordene a ordem.
   migrate:
     name: alembic upgrade head
-    needs: changes
+    needs: [changes, backend]
     if: needs.changes.outputs.migrate == 'true'
-    runs-on: ${{ vars.DB_RUNNER_LABEL || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     environment: pov
     permissions:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
-
       - uses: azure/login@v2
         with:
           environment: AzureCloud
@@ -127,32 +124,62 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Vendorizar o shared
-        run: bash scripts/build.sh
+      - name: Rodar alembic no container do fastapi
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice"
+          # Montado em pedacos: o filtro de e-mail reescreve enderecos literais.
+          SCM="${APP}.scm.$(printf '%s.%s' azurewebsites net)"
+          TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
 
-      - run: pip install -r backend/requirements.txt
+          # Executa um comando no container e devolve o exit code de verdade.
+          # Sem olhar o ExitCode, o curl retorna 200 mesmo com alembic falhando
+          # e a migracao quebrada passaria por bem-sucedida.
+          rodar() {
+            local resp code
+            resp=$(curl -sS --fail-with-body -X POST "https://${SCM}/api/command" \
+                     -H "Authorization: Bearer ${TOKEN}" \
+                     -H "Content-Type: application/json" \
+                     -d "$(jq -nc --arg c "$1" '{command:$c, dir:"/home/site/wwwroot"}')")
+            jq -r '.Output // ""' <<<"$resp"
+            jq -r '.Error  // ""' <<<"$resp" >&2
+            code=$(jq -r '.ExitCode // 1' <<<"$resp")
+            return "$code"
+          }
 
-      - name: Mostrar o que vai ser aplicado
-        working-directory: backend
-        env:
-          DB_USE_ENTRA_TOKEN: 'true'
-          DATABASE_URL: postgresql+psycopg://${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice@${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-postgresql-server.postgres.database.azure.com:5432/documentreader?sslmode=require
-        run: alembic upgrade head --sql
+          echo "::group::SQL que vai ser aplicado"
+          rodar "alembic upgrade head --sql" || echo "(nao foi possivel gerar o preview; segue mesmo assim)"
+          echo "::endgroup::"
 
-      - name: Aplicar
-        working-directory: backend
-        env:
-          DB_USE_ENTRA_TOKEN: 'true'
-          DATABASE_URL: postgresql+psycopg://${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice@${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-postgresql-server.postgres.database.azure.com:5432/documentreader?sslmode=require
-        run: alembic upgrade head
+          rodar "alembic upgrade head"
+
+      # 'alembic current' so le o carimbo, e uma migracao pode estar carimbada
+      # sem estar aplicada. 'alembic check' compara os models contra o schema
+      # real e falha se sobrou diferenca -- e a versao curta de conferir o
+      # information_schema, que e a regra do repo.
+      - name: Conferir que a migracao pegou (alembic check)
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice"
+          SCM="${APP}.scm.$(printf '%s.%s' azurewebsites net)"
+          TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
+          resp=$(curl -sS -X POST "https://${SCM}/api/command" \
+                   -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
+                   -d "$(jq -nc '{command:"alembic check", dir:"/home/site/wwwroot"}')")
+          jq -r '.Output // ""' <<<"$resp"
+          jq -r '.Error  // ""' <<<"$resp" >&2
+          test "$(jq -r '.ExitCode // 1' <<<"$resp")" = "0" \
+            || { echo "::error::schema nao bate com os models depois da migracao"; exit 1; }
 
   # ==========================================================================
   # Frontend
   # ==========================================================================
   frontend:
     name: Publicar frontend
-    needs: [changes, migrate]
-    if: always() && needs.changes.outputs.frontend == 'true' && !failure() && !cancelled()
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     environment: pov
     permissions:
@@ -206,8 +233,8 @@ jobs:
   # ==========================================================================
   backend:
     name: Publicar backend
-    needs: [changes, migrate]
-    if: always() && needs.changes.outputs.backend == 'true' && !failure() && !cancelled()
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     environment: pov
     permissions:
@@ -262,8 +289,8 @@ jobs:
   # ==========================================================================
   function:
     name: Publicar function
-    needs: [changes, migrate]
-    if: always() && needs.changes.outputs.function == 'true' && !failure() && !cancelled()
+    needs: changes
+    if: needs.changes.outputs.function == 'true'
     runs-on: ubuntu-latest
     environment: pov
     permissions:
