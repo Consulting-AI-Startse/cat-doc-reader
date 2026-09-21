@@ -94,84 +94,50 @@ jobs:
           echo "migrate=$mg"  >> "$GITHUB_OUTPUT"
 
   # ==========================================================================
-  # Migracao de banco -- executada DENTRO do container do fastapi
+  # Migracao de banco -- NAO automatizada; avisa alto e para
   # ==========================================================================
   #
-  # Nao adianta o runner falar com o Postgres: a allow-list do firewall tem os
-  # IPs de saida do Function App, nao as faixas do GitHub, e o principal do CD
-  # nao existe no banco. O App Service resolve os dois -- esta na rede e tem a
-  # Managed Identity com direito no schema. E o mesmo caminho de quando se entra
-  # pelo webssh e se roda alembic a mao; aqui so nao tem humano.
+  # Sondado em 27/09 e descartado: POST /api/command do SCM executa no container
+  # do KUDU, nao no da aplicacao. Resposta literal:
+  #   /opt/Kudu/Scripts/starter.sh: line 2: exec: alembic: not found   (127)
+  #   /opt/Kudu/Scripts/starter.sh: line 2: exec: python: not found    (127)
+  # E o wwwroot de la nao tem a aplicacao: tem output.tar.zst e
+  # oryx-manifest.toml, porque o Oryx empacota e o container da aplicacao extrai
+  # em outro lugar em tempo de execucao -- entao nem o alembic.ini estaria no
+  # caminho.
   #
-  # Por isso roda DEPOIS do backend: o arquivo da migracao precisa estar no
-  # wwwroot. A janela em que o codigo novo ve o schema velho e curta e so
-  # importa em migracao destrutiva -- para essas, use o dispatch manual e
-  # coordene a ordem.
+  # Enquanto a automacao nao existe, este job existe para que uma migracao nova
+  # NUNCA passe despercebida: ele falha de proposito e imprime o que rodar.
+  # Falha visivel e o oposto do modo de falha que este repo combate.
   migrate:
-    name: alembic upgrade head
+    name: Migracao pendente (manual)
     needs: [changes, backend]
     if: needs.changes.outputs.migrate == 'true'
     runs-on: ubuntu-latest
-    environment: pov
-    permissions:
-      id-token: write
-      contents: read
     steps:
-      - uses: azure/login@v2
-        with:
-          environment: AzureCloud
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Rodar alembic no container do fastapi
+      - name: Avisar e parar
         shell: bash
         run: |
-          set -euo pipefail
-          APP="${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice"
-          # Montado em pedacos: o filtro de e-mail reescreve enderecos literais.
-          SCM="${APP}.scm.$(printf '%s.%s' azurewebsites net)"
-          TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
+          {
+            echo "## Migracao pendente"
+            echo
+            echo "Este push traz arquivo novo em \`backend/alembic/versions/\`."
+            echo "O backend ja foi publicado; **o schema ainda nao foi migrado**."
+            echo
+            echo "Rode pelo webssh do fastapi:"
+            echo
+            echo '```'
+            echo "alembic upgrade head --sql   # confere o que vai sair"
+            echo "alembic upgrade head"
+            echo "alembic check                # compara models x schema real"
+            echo '```'
+            echo
+            echo "\`alembic current\` nao serve de conferencia: le o carimbo, e"
+            echo "migracao pode estar carimbada sem estar aplicada."
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          # Executa um comando no container e devolve o exit code de verdade.
-          # Sem olhar o ExitCode, o curl retorna 200 mesmo com alembic falhando
-          # e a migracao quebrada passaria por bem-sucedida.
-          rodar() {
-            local resp code
-            resp=$(curl -sS --fail-with-body -X POST "https://${SCM}/api/command" \
-                     -H "Authorization: Bearer ${TOKEN}" \
-                     -H "Content-Type: application/json" \
-                     -d "$(jq -nc --arg c "$1" '{command:$c, dir:"/home/site/wwwroot"}')")
-            jq -r '.Output // ""' <<<"$resp"
-            jq -r '.Error  // ""' <<<"$resp" >&2
-            code=$(jq -r '.ExitCode // 1' <<<"$resp")
-            return "$code"
-          }
-
-          echo "::group::SQL que vai ser aplicado"
-          rodar "alembic upgrade head --sql" || echo "(nao foi possivel gerar o preview; segue mesmo assim)"
-          echo "::endgroup::"
-
-          rodar "alembic upgrade head"
-
-      # 'alembic current' so le o carimbo, e uma migracao pode estar carimbada
-      # sem estar aplicada. 'alembic check' compara os models contra o schema
-      # real e falha se sobrou diferenca -- e a versao curta de conferir o
-      # information_schema, que e a regra do repo.
-      - name: Conferir que a migracao pegou (alembic check)
-        shell: bash
-        run: |
-          set -euo pipefail
-          APP="${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice"
-          SCM="${APP}.scm.$(printf '%s.%s' azurewebsites net)"
-          TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
-          resp=$(curl -sS -X POST "https://${SCM}/api/command" \
-                   -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
-                   -d "$(jq -nc '{command:"alembic check", dir:"/home/site/wwwroot"}')")
-          jq -r '.Output // ""' <<<"$resp"
-          jq -r '.Error  // ""' <<<"$resp" >&2
-          test "$(jq -r '.ExitCode // 1' <<<"$resp")" = "0" \
-            || { echo "::error::schema nao bate com os models depois da migracao"; exit 1; }
+          echo "::error::migracao pendente -- rode alembic upgrade head pelo webssh do fastapi"
+          exit 1
 
   # ==========================================================================
   # Frontend

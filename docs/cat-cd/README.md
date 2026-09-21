@@ -109,29 +109,39 @@ O passo de verificação confere por `length(value)`, nunca a olho — o
 `az ... -o table` reflui valores longos, e isso já nos fez diagnosticar um
 `FUNCTION_URL` truncado como ausente.
 
-### A migração roda dentro do container, não no runner
+### A migração é manual, e o CD não deixa esquecer
 
-O runner não alcança o Postgres — a allow-list do firewall tem os IPs de saída
-do Function App, não as faixas do GitHub — e o service principal do CD não é
-principal no banco. Os dois problemas somem executando `alembic` **dentro do
-container do fastapi**, que já está na rede e já tem a Managed Identity com
-direito no schema. É o mesmo caminho de entrar pelo webssh e rodar à mão; o job
-só tira o humano do meio, pela API de comando do SCM.
+Automatizar a migração pelo pipeline foi **sondado e descartado**. O
+`POST /api/command` do SCM executa no container do **Kudu**, não no da
+aplicação:
 
-Duas consequências:
+```
+/opt/Kudu/Scripts/starter.sh: line 2: exec: alembic: not found   (exit 127)
+/opt/Kudu/Scripts/starter.sh: line 2: exec: python: not found    (exit 127)
+```
 
-- **A migração roda depois do deploy do backend**, não antes: o arquivo da
-  migração precisa estar no `wwwroot`. Existe uma janela curta em que o código
-  novo vê o schema velho. Para migração destrutiva, use o dispatch manual e
-  coordene a ordem.
-- A conferência é `alembic check`, que compara os models contra o schema real.
-  `alembic current` só lê o carimbo, e uma migração pode estar carimbada sem
-  estar aplicada.
+E o `wwwroot` que ele enxerga não tem a aplicação: tem `output.tar.zst` e
+`oryx-manifest.toml`, porque o Oryx empacota e o container da aplicação extrai
+em outro lugar em tempo de execução. Nem o `alembic.ini` estaria no caminho.
 
-**Falta confirmar uma coisa** antes de confiar nesse job: no App Service Linux,
-`POST /api/command` pode executar no container do Kudu em vez do container da
-aplicação — e no do Kudu não existe `alembic`. A sondagem está no fim deste
-arquivo.
+Duas alternativas foram consideradas e recusadas: túnel SSH no workflow
+(`create-remote-connection` + `sshpass`) depende de porta dinâmica, senha fixa e
+de adivinhar onde o Oryx extraiu — quebra calado; e um endpoint administrativo
+no backend seria superfície nova que altera o banco.
+
+**Então a migração roda à mão, pelo webssh do fastapi**, e o job `migrate`
+existe para que ela nunca passe despercebida: com arquivo novo em
+`backend/alembic/versions/`, ele **falha de propósito** e escreve no resumo do
+run o que rodar.
+
+```bash
+alembic upgrade head --sql   # confere o que vai sair
+alembic upgrade head
+alembic check                # compara models x schema real
+```
+
+`alembic current` não serve de conferência: lê o carimbo, e migração pode estar
+carimbada sem estar aplicada.
 
 ### Variáveis e secrets que os dois esperam
 
