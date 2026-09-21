@@ -60,7 +60,7 @@ aplicação. O job `migrate` falha de propósito e imprime o comando para o webs
 
 ---
 
-## 2026-09-21 — `fix/poison-handler-marks-document-error` · **aguardando PR**
+## 2026-09-21 — `fix/poison-handler-marks-document-error` · **substituída**
 
 Handler da fila de poison passa a fechar o documento no banco. 2 arquivos de
 código (`function/doc_worker.py`, `function/function_app.py`) e o `BACKLOG.md`,
