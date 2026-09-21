@@ -13,7 +13,7 @@ Azure, cada um do seu lado do pipeline:
 **Nenhum dos dois vai para a VM da Caterpillar nem para o repo da CAT.** Não
 são alternativas de produção. Servem para exercitar o pipeline — prompt, regras
 de part number, rateio de embalagem, parsing do JSON — com documento real, sem
-gastar serviço pago e sem depender da rede da CAT.
+gastar serviço pago e sem depender de acesso aos recursos da Azure.
 
 ## Como é garantido que ficam fora do deploy
 

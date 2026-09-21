@@ -11,16 +11,16 @@ merge entre eles:
 
 | | |
 |---|---|
-| `Consulting-AI-Startse/cat-doc-reader` | este. Onde o trabalho é feito e onde dá para rodar local. |
-| `AICOE_AIagent_DocumentReader_POV` (org da CAT) | **de onde sai o deploy**. Roda na VM da Caterpillar. |
+| `Consulting-AI-Startse/cat-doc-reader` | repo de desenvolvimento da StartSe |
+| `AICOE_AIagent_DocumentReader_POV` (org da CAT) | **de onde sai o deploy**, na infraestrutura da Caterpillar |
 
 **Toda mudança de fluxo ou de regra de negócio feita aqui tem de ser espelhada
-para lá.** Senão a produção fica para trás — já aconteceu: este repo passou cinco
-semanas parado no scaffold enquanto todo o trabalho ia para o da CAT.
+para lá**, e o repo da CAT é a referência do que está em produção. Se os dois
+divergirem, quem manda é o de lá.
 
-O espelhamento é por **patch escopado**, não por merge. O precedente é o
-`cat-fixes.patch`: `git diff` restrito aos diretórios de aplicação, conferido com
-`git apply --check` antes de aplicar.
+O espelhamento é por **patch escopado**, não por merge: `git diff` restrito aos
+diretórios de aplicação, conferido com `git apply --check` antes de aplicar. Como
+o patch chega até lá e quem abre o PR está na seção seguinte.
 
 ### O que espelha e o que nunca espelha
 
@@ -42,6 +42,50 @@ Duas armadilhas de espelhamento, ambas capazes de quebrar a produção:
 - **`.github/variables/*.env` foi removido do histórico deste repo** — carregava
   subscription ID, object ID de grupo AAD e client IDs da Caterpillar. Não
   recriar aqui, e não propagar a remoção para lá.
+
+## O fluxo de trabalho
+
+```
+1. desenvolve aqui, commitando na main deste repo
+2. a mudanca e de teste local?  -> fica aqui, fim
+   a mudanca e feature de verdade? -> tem de ir para a VM da CAT
+3. transporte: e-mail, no arquivo mais leve possivel (.txt com o diff)
+4. na VM: comandos de prompt do Windows para aplicar o diff
+5. o Luis cria a branch e abre o PR la
+```
+
+**Neste repo nao se abre branch nem PR.** Commit direto na `main` e o normal; o
+PR existe do lado da CAT, e quem abre e o Luis. O passo 5 e dele, nao nosso.
+
+### O que entregar no passo 3
+
+Para cada leva de mudancas que precisa ir para a VM, produza **quatro coisas**:
+
+1. **O diff em `.txt`**, escopado so ao que espelha (ver a tabela acima). Nunca
+   incluir os arquivos do modo local.
+2. **O SHA-256 do arquivo**, para conferir na chegada. E o que separa "chegou
+   corrompido" de um erro cifrado do `git apply` meia hora depois.
+3. **Os comandos de Windows/PowerShell** para aplicar, conferir e testar --
+   prontos para colar, sem depender de `python` no PATH (na VM nao esta; usar
+   `.\function\.venv\Scripts\python.exe`).
+4. **Nome de branch e descricao de PR sugeridos**, prontos para o Luis usar.
+   Branch no padrao `fix/...` ou `feat/...`, descricao dizendo o que muda, por
+   que, e como conferir.
+
+### O transporte tem de preservar os bytes
+
+Diff cru em `.txt` **nao sobrevive ao e-mail**: o filtro de links reescreve URLs
+e nomes terminados em `.py` (`.py` e TLD do Paraguai), e isso ja corrompeu os
+proprios cabecalhos `diff --git`, deixando o patch inaplicavel.
+
+Entao, na pratica: gere o diff, **codifique em base64** e mande o `.txt` do
+base64. Nao sobra nada que o filtro reconheca, e a decodificacao na VM e uma
+linha:
+
+```powershell
+certutil -decode .\p.b64 .\cat.patch
+(Get-FileHash .\cat.patch -Algorithm SHA256).Hash.ToLower()   # tem de bater
+```
 
 ## Rodar e testar
 
@@ -79,13 +123,23 @@ lugar do Azure OpenAI — está em `docs/modo-local.md`, com a matriz de setting
 
 ## Armadilhas que já custaram tempo
 
-**Filtro de e-mail corrompe arquivo em trânsito.** O URL Defense da Caterpillar
-reescreve URLs literais **e nomes terminados em `.py`** (`.py` é o TLD do
-Paraguai). Já quebrou: o escopo do token do Azure OpenAI, o `start-local.ps1`
-(`--blobHost http://127.0.0.1`, que não é host válido), o `sync-para-vm.txt`
-inteiro, e docstrings de dois scripts de teste. Monte URLs e nomes de arquivo em
-pedaços (`("azurewebsites","net") -join "."`), e rode
-`grep -c urldefense` em qualquer coisa que veio por e-mail antes de aplicar.
+**Arquivo de texto não sobrevive intacto ao e-mail corporativo.** O filtro de
+links reescreve URLs e também nomes terminados em `.py` (`.py` é o TLD do
+Paraguai), então o conteúdo chega diferente do que saiu. Já corrompeu: o escopo
+do token do Azure OpenAI, o `start-local.ps1` (`--blobHost http://127.0.0.1`,
+que não é host válido), um manifesto de sync inteiro, docstrings de dois scripts
+de teste e, uma vez, os próprios cabeçalhos de um patch — que por isso não
+aplicou.
+
+Duas consequências práticas:
+
+- No código, monte URLs e nomes de arquivo em pedaços
+  (`("azurewebsites","net") -join "."`), para que uma reescrita não quebre o
+  valor.
+- Para transportar patch ou script, use um formato que preserve os bytes
+  (base64 ou zip) e **confira o SHA-256 na chegada** antes de aplicar. Conferir
+  o hash é o que transforma "chegou corrompido" de bug misterioso em erro na
+  hora certa.
 
 **Nunca edite `backend/shared/` nem `function/shared/`.** São geradas por
 `scripts/build.sh` a partir de `shared/shared/`. Editar a cópia funciona até o
