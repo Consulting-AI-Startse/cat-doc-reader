@@ -14,13 +14,17 @@ estado do PR.
 
 ## 2026-09-21 — `feat/app-cicd-and-appservice-config` · **aguardando PR**
 
-Grupo A do change request e o CI/CD da aplicação. 5 arquivos, 2 deles novos.
+Grupo A do change request e o CI/CD da aplicação. 6 arquivos, 2 deles novos.
 
 **O que vai:**
 
 - `bicep/main.bicep` — runtime (`NODE|20-lts`, `PYTHON|3.14`), `AlwaysOn: 'true'`
   como String, `healthCheckPath: '/health'` só no fastapi. Os três valores
   conferidos contra os serviços, não supostos.
+- `function/doc_worker.py` — os blocos de modo local saem para
+  `function/doc_worker_local.py`, que não espelha. **Encerra a divergência
+  permanente** que fez esta leva falhar: o arquivo volta a ser idêntico nos dois
+  repos. Nenhuma mudança de comportamento do lado da CAT.
 - `shared/pyproject.toml`, `function/pyproject.toml` — piso `>=3.11`. O backend
   fica em `>=3.14`; a assimetria é intencional.
 - `workflows/app-ci.yml`, `workflows/app-deploy.yml` — **novos**.
@@ -30,23 +34,24 @@ a primeira transportada como **zip dos arquivos finais em base64, não como
 diff** — ver abaixo. Os workflows precisam ser copiados para
 `.github/workflows/` do lado de lá: espelhar o arquivo não é ativá-lo.
 
-**Transporte:** `leva2.b64`, 14712 bytes,
-`67e1bd88c69d42a0226bf54ae1735073bf1a4721c899cc94c18299279e01bb2a`; o
+**Transporte:** `leva2.b64`, 18112 bytes,
+`1a35710afaeb7cc5553d86f1b15f60c9f49e6d288d7a797797ccacd57c06301e`; o
 `leva2.zip` que sai dele é
-`604fe52051a5deb7f11a18dcc6bb42add45147da5063a2458e34d3bbdfe11853`. O LEIA-ME
-traz os hashes dos 3 arquivos que serão sobrescritos, para conferir **antes** de
+`8e2b33077042e1e42ac1ffd43eeb2c5d3c1e86a0058f640c144d2edc776f3db0`. O LEIA-ME
+traz os hashes dos 4 arquivos que serão sobrescritos, para conferir **antes** de
 descompactar.
 
 **Por que deixou de ser diff.** Duas tentativas falharam, por motivos
 diferentes, e o diagnóstico custou mais que o transporte:
 
 1. o patch da leva 2 incluía a leva 1, que já estava aplicada lá;
-2. o `doc_worker.py` diverge dos dois lados **por desenho** — os blocos
-   `use_local_extractor` / `use_local_structurer` só existem aqui, então o
-   contexto tem ~24 linhas a mais e nenhum diff desse arquivo aplica lá.
+2. o `doc_worker.py` divergia dos dois lados — os blocos `use_local_extractor` /
+   `use_local_structurer` só existiam aqui, então o contexto tinha ~24 linhas a
+   mais e nenhum diff desse arquivo aplicava lá.
 
-O segundo virou nota de rodapé na tabela do `CLAUDE.md`, que dizia que o arquivo
-espelha sem ressalva.
+O segundo **foi resolvido nesta leva**, não só documentado: os blocos saíram
+para `doc_worker_local.py`. A nota de rodapé no `CLAUDE.md` agora registra o que
+faria a divergência voltar.
 
 **Conferido aqui:** `import function_app` em venv 3.11 real; `check_rules.py`
 25/25; YAML válido nos dois workflows e `bash -n` limpo nos 27 blocos de `run`;
