@@ -131,7 +131,7 @@ export function DocumentDetail() {
     const f = buildForm(data);
     setForm(f);
     setBaseline(JSON.stringify(f));
-  }, [data?.id, data?.status]);
+  }, [data?.id, data?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const dirty = form != null && JSON.stringify(form) !== baseline;
 

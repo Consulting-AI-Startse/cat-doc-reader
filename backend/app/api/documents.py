@@ -188,6 +188,19 @@ def get_document_file(
     db: Session = Depends(get_db),
     storage=Depends(get_storage),
 ):
+    """Devolve o PDF original do Blob, usado pelo viewer da tela de revisao.
+
+    PARA AZURE (transicao): hoje a API baixa o PDF do Blob e transmite os bytes
+    ela mesma (proxy). No Azure Blob Storage real, o padrao preferido e NAO
+    passar o binario pela API: a API gera um link assinado de curta duracao
+    (User Delegation SAS, criado com a Managed Identity) e devolve so a URL; o
+    iframe do frontend aponta direto pro Blob e o arquivo nem trafega pela API.
+    Ressalva da CAT: se a conta ficar so com Private Endpoint (sem rede publica),
+    o browser do usuario nao alcanca o Blob direto. Ai, ou se mantem este proxy
+    (como esta agora), ou se serve o arquivo por um caminho alcancavel. A escolha
+    depende da topologia de rede final: o endpoint passa de "transmitir bytes"
+    para "devolver uma URL SAS" conforme o caso.
+    """
     doc = db.get(Document, document_id)
     if doc is None or not doc.blob_path:
         raise HTTPException(404, "documento ou arquivo não encontrado")
