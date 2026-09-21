@@ -1,0 +1,103 @@
+# Ambiente de desenvolvimento
+
+O que precisa estar instalado para o `./start-local.sh` subir, e em que versão
+isso foi verificado. **Mantenha atualizado**: quando trocar uma versão ou
+acrescentar uma dependência de ambiente, atualize aqui na mesma leva.
+
+Última verificação: **2026-09-21**.
+
+## Ferramentas
+
+| ferramenta | versão | para quê |
+|---|---|---|
+| Node | 22.22.2 | frontend (Vite) |
+| npm | 10.9.7 | |
+| uv | 0.9.26 | ambientes Python de backend e function |
+| Azure Functions Core Tools | 4.14.0 | roda a function local (`func start`) |
+| Azurite | 3.37.0 | Blob (10000) e Queue (10001) |
+| PostgreSQL | 15.17 | serviço do sistema, não container |
+
+`func` e `azurite` vêm do npm global:
+
+```bash
+npm i -g azurite azure-functions-core-tools@4
+```
+
+## Python: duas versões de propósito
+
+| onde | versão | por quê |
+|---|---|---|
+| `function/.venv` | **3.11.15** | é o runtime do Function App na Azure (`linuxFxVersion: Python\|3.11`) |
+| `backend/.venv` | 3.14.2 | o que `backend/pyproject.toml` declara |
+
+A da function tem de ser 3.11 para o local bater com produção. Note que
+`shared/pyproject.toml` pede `>=3.14`, o que impede instalar o `shared` como
+pacote num venv 3.11 — por isso o `start-local.sh` roda `scripts/build.sh`, que
+vendoriza os arquivos, que é o que o deploy faz.
+
+```bash
+cd function && uv venv --python 3.11 .venv
+uv pip install --python .venv/bin/python -r requirements.txt
+```
+
+## Pacotes que importam
+
+| pacote | versão | onde |
+|---|---|---|
+| `azure-functions` | 1.25.0 | function |
+| `azure-ai-documentintelligence` | 1.0.2 | function (OCR de produção) |
+| `openai` | 3.16.2 | function (Azure OpenAI e OpenRouter) |
+| `sqlalchemy` | 2.0.54 | backend e function |
+| `docling` | 2.129.0 | **só modo local** (`requirements-local.txt`) |
+| `torch` | 2.14.0+cpu | dependência do docling; instalar pelo índice de CPU |
+| `pypdfium2` | 5.13.0 | vem com o docling; renderiza página no fallback por imagem |
+
+O `torch` pelo índice de CPU, senão a resolução puxa a stack CUDA inteira:
+
+```bash
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+```
+
+Custo do modo local: ~1,5 GB de venv e ~500 MB de modelos em
+`~/.cache/huggingface` (uma vez só).
+
+## Banco
+
+Postgres é serviço do sistema e **não é derrubado** pelo `stop-local.sh` — a
+mesma instância hospeda outros bancos.
+
+```sql
+CREATE ROLE invoice LOGIN PASSWORD 'invoice';
+CREATE DATABASE documentreader OWNER invoice;
+```
+
+Depois, `alembic upgrade head` (o `start-local.sh` já faz).
+
+## Portas
+
+| porta | serviço |
+|---|---|
+| 5173 | frontend (Vite) |
+| 8000 | backend (FastAPI) |
+| 7071 | function (Core Tools) |
+| 10000 / 10001 | Azurite blob / queue |
+| 5432 | Postgres |
+
+## Conferir o que está instalado
+
+```bash
+./start-local.sh --status     # o que esta no ar
+
+node --version; npm --version; uv --version
+func --version; azurite --version; psql --version
+function/.venv/bin/python --version
+function/.venv/bin/python -c "import importlib.metadata as m; \
+print({p: m.version(p) for p in ('docling','torch','openai','azure-functions')})"
+```
+
+## Memória
+
+O modo local com Docling é pesado. Numa máquina de 7 GB, o fallback por imagem
+já levou a OOM em documento longo — e com outras ferramentas abertas o limite
+chega antes. Se o worker morrer sem deixar mensagem, é o primeiro suspeito:
+confira `free -m` e feche o que não estiver em uso.

@@ -77,9 +77,9 @@ cópias.** O racional completo está em `STRUCTURE.md`.
 ./stop-local.sh
 ```
 
-Pré-requisitos e o modo local de IA (Docling no lugar do Document Intelligence,
-OpenRouter no lugar do Azure OpenAI) estão em `docs/modo-local.md`. No
-Windows/VM o equivalente é o `start-local.ps1`.
+Ferramentas e versões necessárias: `docs/ambiente.md`. O modo local de IA
+(Docling no lugar do Document Intelligence, OpenRouter no lugar do Azure OpenAI)
+está em `docs/modo-local.md`. No Windows/VM o equivalente é o `start-local.ps1`.
 
 ## Testes
 
@@ -96,6 +96,7 @@ até alguém rodar isso.
 ## Backlog e deploy
 
 - Próximas features, ponderadas: `BACKLOG.md`
+- O que já foi espelhado para o repo da CAT: `docs/sync-cat.md`
 - Deploy passo a passo (CLI az, da VM da CAT): `DEPLOY.md`. Rode
   `scripts/build.sh` antes de empacotar.
 - Schema do banco (Fase 0): `db/db-setup-v2.sql`.

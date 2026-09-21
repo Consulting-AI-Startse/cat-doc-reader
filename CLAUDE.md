@@ -1,8 +1,9 @@
 # CLAUDE.md
 
 Leia isto antes de mexer no repo. O resto do contexto está no `README.md`
-(o que o sistema faz), `STRUCTURE.md` (por que está assim) e `BACKLOG.md`
-(o que vem a seguir).
+(o que o sistema faz), `STRUCTURE.md` (por que está assim), `BACKLOG.md`
+(o que vem a seguir), `docs/ambiente.md` (o que precisa estar instalado) e
+`docs/sync-cat.md` (o que já foi espelhado para a CAT).
 
 ## A regra central: este repo espelha o da Caterpillar
 
@@ -42,6 +43,41 @@ Duas armadilhas de espelhamento, ambas capazes de quebrar a produção:
 - **`.github/variables/*.env` foi removido do histórico deste repo** — carregava
   subscription ID, object ID de grupo AAD e client IDs da Caterpillar. Não
   recriar aqui, e não propagar a remoção para lá.
+
+## Os artefatos do cliente não estão no repo — peça
+
+As planilhas e os PDFs que sustentam quase toda decisão deste projeto **não são
+versionados**: são dados do cliente (part numbers, preços, condições comerciais
+de fornecedores). Ficam fora, na máquina de quem está trabalhando.
+
+| artefato | o que é |
+|---|---|
+| `SUBIR_FATURA_GA.xlsx` | contrato de 22 campos, premissas e plano de aceitação |
+| `PN Liberados.xlsx` | 206.769 part numbers liberados, com descrição |
+| `Gabarito_DocReader.xlsx` | a única verdade legível por máquina: 38 linhas, 16 faturas |
+| corpus de 28 PDFs | faturas reais de onde saíram todas as regras de formato |
+| `CIV MRKU6295556.PDF` | o documento difícil: 35 páginas, 16 delas giradas |
+| `raw-civ-cap.json` | extração do CIV; o `check_structurer.py` depende dela |
+
+**Se precisar de um destes e ele não estiver na máquina, peça ao Luis.** Não
+invente caminho, não reconstrua de memória e não conclua que o arquivo não
+existe. O `raw-civ-cap.json` em particular pode ser regerado na hora pela VM,
+então não tem por que trabalhar com uma versão velha.
+
+## Registre toda leva espelhada
+
+`docs/sync-cat.md` é o log do que já foi para o repo da CAT. **Toda leva nova
+entra lá**, no topo, com data, o que mudou, como foi transportada, o nome da
+branch e o estado do PR — e o estado é atualizado quando o PR for merjado.
+
+Sem esse arquivo não dá para saber o que já foi espelhado: os dois repos têm
+históricos independentes, então o git não responde essa pergunta.
+
+## Mantenha `docs/ambiente.md` atualizado
+
+Versão de ferramenta, pacote novo, porta nova, passo de setup — tudo isso entra
+em `docs/ambiente.md` na mesma leva da mudança. É o arquivo que responde "o que
+preciso ter instalado para isto rodar", e ele só serve se estiver certo.
 
 ## O fluxo de trabalho
 
@@ -176,6 +212,8 @@ backend/app/api/     rotas (documents, dashboard)
 function/            function_app.py (3 gatilhos) + doc_worker.py + pipeline/
 frontend/src/        paginas em pages/, rotas inline em main.tsx
 backend/alembic/     migracoes; db/db-setup-v2.sql e gerado delas
+docs/ambiente.md     ferramentas e versoes do ambiente local
 docs/modo-local.md   modo local de IA
+docs/sync-cat.md     log do que ja foi espelhado para a CAT
 docs/cat-cd/         CD da CAT, so referencia -- nao roda daqui
 ```
