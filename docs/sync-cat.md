@@ -12,6 +12,54 @@ estado do PR.
 
 ---
 
+## 2026-09-21 — `feat/app-cicd-and-appservice-config` · **aguardando PR**
+
+CI/CD da aplicação, configuração dos App Services e o poison handler. 7 arquivos.
+**Substitui a leva `fix/poison-handler-marks-document-error`**, que nunca chegou
+a ser aplicada: este patch contém o conteúdo dela mais o resto.
+
+**O que vai:**
+
+- `function/doc_worker.py`, `function_app.py` — `mark_failed()` fecha no banco o
+  documento cujo worker morreu; só sobrescreve `received` e `processing`. Mais o
+  `NameError` do caminho de `document_id` ausente e uma docstring partida.
+- `bicep/main.bicep` — grupo A do change request: runtime (`NODE|20-lts` e
+  `PYTHON|3.14`), `AlwaysOn: 'true'` como String, `healthCheckPath: '/health'`
+  só no fastapi. Os três valores conferidos contra os serviços.
+- `shared/pyproject.toml`, `function/pyproject.toml` — piso `>=3.11`. O backend
+  fica em `>=3.14`: a assimetria é intencional, porque o `shared` vai para as
+  duas aplicações e a function roda 3.11.
+- `workflows/app-ci.yml`, `workflows/app-deploy.yml` — **novos**.
+
+**Primeira leva que carrega `aiagent-documentreader-infrastructure-azure/`.** A
+tabela do `CLAUDE.md` foi atualizada na mesma leva: o diretório existe igual dos
+dois lados, então espelha por caminho. Mas os workflows **precisam ser copiados
+para `.github/workflows/`** do lado de lá para rodar — espelhar o arquivo não é
+ativá-lo.
+
+**Transporte:** base64 (`p2.b64`, 39822 bytes,
+`be20360210d22bbf82dd44f48811b26b4a53231f34567aa4edf4f1fc9c71f282`); o
+`cat2.patch` que sai dele é
+`428436cbd6a170201e7495a4c856a65f3e58dfae6fd61214998a551aaeabcfa5`. Conferido
+com `git apply --check` num worktree no baseline `74916ef`, e os 7 arquivos
+reproduzem o HEAD byte a byte.
+
+**Conferido aqui:** `import function_app` num venv 3.11 real; `check_rules.py`
+25/25; `import app.main` num venv 3.14; YAML válido nos dois workflows e
+`bash -n` limpo nos 27 blocos de `run`; filtro de paths testado em 10 cenários;
+verificador de settings testado contra o estado real da produção. O
+`check_structurer.py` **não rodou** — depende do `raw-civ-cap.json`, que não
+está nesta máquina. Rodar na VM.
+
+**Decidido por sondagem, não por suposição:** a migração não entra no CD. O
+`POST /api/command` do SCM executa no container do Kudu (`exec: alembic: not
+found`, exit 127), e o `wwwroot` que ele enxerga tem `output.tar.zst`, não a
+aplicação. O job `migrate` falha de propósito e imprime o comando para o webssh.
+
+**Estado:** patch pronto, PR ainda não aberto.
+
+---
+
 ## 2026-09-21 — `fix/poison-handler-marks-document-error` · **aguardando PR**
 
 Handler da fila de poison passa a fechar o documento no banco. 2 arquivos de
@@ -40,8 +88,8 @@ reproduz o HEAD byte a byte.
 depende do `raw-civ-cap.json`, que não está nesta máquina. Rodar na VM, onde ele
 existe.
 
-**Estado:** patch pronto, PR ainda não aberto. Atualizar esta entrada quando o
-Luis abrir e quando for merjado.
+**Estado:** **substituída** pela leva acima, que a contém. Este patch nunca foi
+aplicado; não aplique o `p.b64` desta entrada.
 
 ---
 
@@ -82,8 +130,9 @@ do PR. Daí a regra de que arquivo de comunicação nunca mora no repo.
 
 ## Pendente de espelhamento
 
-A leva `fix/poison-handler-marks-document-error`, no topo: o patch está pronto e
-conferido, falta transportar para a VM e abrir o PR.
+A leva `feat/app-cicd-and-appservice-config`, no topo: o patch está pronto e
+conferido, falta transportar para a VM, copiar os workflows para
+`.github/workflows/` e abrir o PR.
 
 Para conferir se algo escapou, compare os diretórios que espelham (ver a tabela
 no `CLAUDE.md`) contra o último ponto espelhado.
