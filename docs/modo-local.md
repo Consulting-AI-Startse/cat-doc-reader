@@ -9,6 +9,7 @@ Azure, cada um do seu lado do pipeline:
 |---|---|---|
 | `DoclingExtractor` | Document Intelligence | `function/pipeline/extractor_local.py` |
 | `OpenRouterStructurer` | Azure OpenAI | `function/pipeline/structurer_local.py` |
+| quem escolhe os dois | — | `function/doc_worker_local.py` |
 
 **Nenhum dos dois vai para a VM da Caterpillar nem para o repo da CAT.** Não
 são alternativas de produção. Servem para exercitar o pipeline — prompt, regras
@@ -20,8 +21,13 @@ gastar serviço pago e sem depender de acesso aos recursos da Azure.
 | barreira | onde | efeito |
 |---|---|---|
 | dependência separada | `function/requirements-local.txt` | o build do Oryx lê `requirements.txt`, nunca este. Vale só para o Docling: o structurer não tem dependência nova, o `openai` já está lá por causa do Azure |
-| exclusão do pacote | `function/.funcignore` | os dois módulos, o requirements local e o `.env.local` não entram no zip |
-| import condicional | `doc_worker.build_extractor()` / `build_structurer()` | só importam com `USE_LOCAL_EXTRACTOR` / `USE_LOCAL_STRUCTURER`, settings que não existem no Function App |
+| exclusão do pacote | `function/.funcignore` | os três módulos, o requirements local e o `.env.local` não entram no zip |
+| import protegido | `doc_worker.py` | `import doc_worker_local` dentro de `try/except ModuleNotFoundError`; sem o arquivo sobra `None` e o caminho de produção segue direto |
+
+O `doc_worker_local.py` foi extraído do `doc_worker.py` por uma razão de
+espelhamento, não só de arrumação: enquanto os blocos moravam lá dentro, o
+`doc_worker.py` divergia do repo da CAT em ~24 linhas e nenhum `git diff` dele
+aplicava lá. Ver a nota de rodapé na tabela do `CLAUDE.md`.
 
 ## Subir o ambiente
 
@@ -239,13 +245,14 @@ por campo não funciona neste modo**. O `quality` devolvido marca isso com
 ```bash
 git rm function/pipeline/extractor_local.py \
        function/pipeline/structurer_local.py \
+       function/doc_worker_local.py \
        function/requirements-local.txt \
        docs/modo-local.md
 ```
 
 E tirar:
 
-- as quatro linhas de exclusão do `function/.funcignore`;
+- as cinco linhas de exclusão do `function/.funcignore`;
 - os dois blocos marcados como desenvolvimento local em
   `doc_worker.build_extractor()` e `build_structurer()`;
 - `use_local_extractor`, `local_extractor_force_ocr`, `use_local_structurer` e

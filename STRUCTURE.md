@@ -73,16 +73,24 @@ um banco migrado comparando `information_schema.columns`, nao o stamp.
 
 `function/pipeline/extractor_local.py` roda OCR na maquina do desenvolvedor e
 `function/pipeline/structurer_local.py` manda o texto para um LLM via OpenRouter, para
-exercitar o pipeline inteiro sem Document Intelligence nem Azure OpenAI. **Nunca vao
+exercitar o pipeline inteiro sem Document Intelligence nem Azure OpenAI. Quem decide
+usar um ou outro e `function/doc_worker_local.py`. **Nunca vao
 para o Function App nem para o repo da Caterpillar**, e a estrutura garante isso em
 tres pontos independentes:
 
 - a dependencia do Docling mora em `function/requirements-local.txt`, e o Oryx so le
   `requirements.txt` (o structurer local nao tem dependencia nova: o `openai` ja esta
   la por causa do Azure);
-- `.funcignore` exclui os dois modulos, aquele requirements e o `.env.local` do zip;
-- `build_extractor()` e `build_structurer()` so importam com `USE_LOCAL_EXTRACTOR` /
-  `USE_LOCAL_STRUCTURER`, settings que nao existem no Function App.
+- `.funcignore` exclui os tres modulos, aquele requirements e o `.env.local` do zip;
+- `doc_worker.py` so alcanca o modo local por um `import doc_worker_local` protegido por
+  `try/except ModuleNotFoundError`: sem o arquivo, sobra `None` e o caminho de producao
+  segue direto.
+
+O `doc_worker_local.py` existe por um motivo alem da arrumacao: enquanto os blocos de
+modo local moravam dentro do `doc_worker.py`, esse arquivo divergia do repo da
+Caterpillar em ~24 linhas, e **nenhum `git diff` dele aplicava la**. Ja custou uma leva
+inteira de espelhamento. Com a extracao, o `doc_worker.py` volta a ser identico nos dois
+repos.
 
 Nao sao substitutos do Document Intelligence: o caminho PDF do Docling perde pagina
 escaneada inteira (62 chars nas paginas 4-6 do CIV), e a saida so volta pelo fallback que

@@ -5,6 +5,7 @@ local.settings.json
 *.zip
 
 # Modo local de desenvolvimento: nunca vai no zip do deploy.
+doc_worker_local.py
 pipeline/extractor_local.py
 pipeline/structurer_local.py
 requirements-local.txt

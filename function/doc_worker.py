@@ -20,22 +20,22 @@ from shared.storage import BlobStorage, get_blob_storage
 from pipeline.extractor import DocumentExtractor, MockExtractor, tables_summary
 from pipeline.structurer import LLMStructurer, MockStructurer
 
+# Gancho do modo local. doc_worker_local.py esta no .funcignore e nao vai para o
+# Function App, entao la este import falha e sobra None -- o caminho de producao
+# segue direto. E o que mantem ESTE arquivo identico ao do repo da Caterpillar:
+# enquanto os blocos de modo local moravam aqui, ele divergia em ~24 linhas e
+# nenhum diff dele aplicava la.
+try:
+    import doc_worker_local as _local
+except ModuleNotFoundError:
+    _local = None
+
 CONFIDENCE_THRESHOLD = 0.90
 
 
 def build_extractor() -> DocumentExtractor:
-    # Bloco de desenvolvimento local: remover junto com pipeline/extractor_local.py.
-    # Vem ANTES do use_real_services de proposito -- o uso que importa e Docling
-    # + Azure OpenAI de verdade, para testar o parsing do LLM com texto real sem
-    # gastar Document Intelligence. Esta setting nao existe no Function App.
-    if settings.use_local_extractor:
-        from pipeline.extractor_local import DoclingExtractor
-
-        return DoclingExtractor(
-            force_full_page_ocr=settings.local_extractor_force_ocr,
-            dpi=settings.local_extractor_dpi,
-            fix_rotation=settings.local_extractor_fix_rotation,
-        )
+    if _local and (extractor := _local.build_extractor()) is not None:
+        return extractor
     if settings.use_real_services:
         from pipeline.extractor import DocumentIntelligenceExtractor
 
@@ -48,17 +48,8 @@ def build_extractor() -> DocumentExtractor:
 
 
 def build_structurer() -> LLMStructurer:
-    # Bloco de desenvolvimento local: remover junto com pipeline/structurer_local.py.
-    # Mesma precedencia do extractor -- decide so o structurer, e a setting nao
-    # existe no Function App.
-    if settings.use_local_structurer:
-        from pipeline.structurer_local import OpenRouterStructurer
-
-        return OpenRouterStructurer(
-            api_key=settings.openrouter_api_key,
-            model=settings.openrouter_model,
-            max_tokens=settings.openrouter_max_tokens,
-        )
+    if _local and (structurer := _local.build_structurer()) is not None:
+        return structurer
     if settings.use_real_services:
         from pipeline.structurer import AzureOpenAIStructurer
 

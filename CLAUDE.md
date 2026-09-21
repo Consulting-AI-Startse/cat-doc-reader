@@ -38,20 +38,20 @@ o patch chega até lá e quem abre o PR está na seção seguinte.
 |---|---|
 | `backend/`, `frontend/` | `function/pipeline/extractor_local.py` |
 | `shared/shared/` | `function/pipeline/structurer_local.py` |
-| `function/pipeline/structurer.py`, `extractor.py` | `function/requirements-local.txt` |
-| `function/doc_worker.py`¹, `function_app.py` | `start-local.sh`, `stop-local.sh` |
+| `function/pipeline/structurer.py`, `extractor.py` | `function/doc_worker_local.py` |
+| `function/doc_worker.py`¹, `function_app.py` | `function/requirements-local.txt` |
+| `check_rules.py`, `check_structurer.py` | `start-local.sh`, `stop-local.sh` |
 | `backend/alembic/versions/`, `db/db-setup-v2.sql` | `docs/modo-local.md`, `docs/cat-cd/` |
-| `check_rules.py`, `check_structurer.py` | `.env.local`, `.local/` |
-| `aiagent-documentreader-infrastructure-azure/` | as linhas locais do `.funcignore` |
+| `aiagent-documentreader-infrastructure-azure/` | `.env.local`, `.local/` |
+| | as linhas locais do `.funcignore` |
 
-¹ **O `doc_worker.py` diverge dos dois lados de propósito, para sempre.** Os
-blocos `if settings.use_local_extractor:` e `if settings.use_local_structurer:`
-em `build_extractor()` e `build_structurer()` **só existem aqui** — lá eles
-foram retirados, e importam `pipeline/extractor_local` / `structurer_local`, que
-nunca espelham. Consequência prática: **um `git diff` deste arquivo não aplica
-lá**, porque o contexto tem ~24 linhas a mais. Já custou uma leva inteira.
-Quando este arquivo mudar, mande o arquivo pronto, não o diff — e retire os dois
-blocos antes.
+¹ **O `doc_worker.py` já divergiu dos dois lados, e não diverge mais.** Os
+blocos de modo local moravam nele, só existiam aqui, e faziam o contexto ter ~24
+linhas a mais — nenhum `git diff` do arquivo aplicava lá, o que custou uma leva
+inteira. Foram extraídos para `function/doc_worker_local.py`, que nunca espelha;
+o que sobrou no `doc_worker.py` é um `import` protegido por `try/except
+ModuleNotFoundError`, idêntico nos dois repos. **Se algum dia voltar a aparecer
+código de modo local dentro deste arquivo, a divergência volta junto.**
 
 Três armadilhas de espelhamento, todas capazes de quebrar a produção:
 
