@@ -217,11 +217,13 @@ Duas consequências práticas:
 `scripts/build.sh` a partir de `shared/shared/`. Editar a cópia funciona até o
 próximo build sobrescrever em silêncio.
 
-**As três aplicações rodam Python 3.11 na Azure.** Os três `pyproject.toml`
-pediam `>=3.14`, o que impedia instalar o `shared` como pacote num venv 3.11 e
-só não quebrava porque o deploy vendoriza os arquivos. Hoje todos declaram
-`>=3.11` e o backend foi conferido importando em 3.11. O vendoring continua
-sendo o mecanismo do deploy: para montar as cópias, `scripts/build.sh`.
+**O `shared/` roda em 3.11, mesmo com o backend em 3.14.** A Function App está
+em 3.11 (a 3.14 ainda não chegou lá) e o `shared` é implantado nas duas
+aplicações: sintaxe que só exista em 3.14 passa no backend e **quebra no import
+da function**. Por isso `shared/pyproject.toml` declara `>=3.11` enquanto
+`backend/pyproject.toml` declara `>=3.14` — a assimetria é intencional, e o piso
+do `shared` é sempre o menor dos dois runtimes. O `shared` nunca é instalado
+como pacote: é vendorizado por `scripts/build.sh`, que é o que o deploy faz.
 
 **Confiança auto-reportada pelo modelo não vale nada.** Um documento voltou com
 `confidence: 0.95` e quatro defeitos. Confiança útil vem do OCR (confiança por

@@ -2,9 +2,7 @@
 name = "cat-doc-reader-function"
 version = "0.1.0"
 description = "CAT Document Reader - function (worker de IA, Azure Functions)"
-# 3.11 e o runtime das tres aplicacoes na Azure (linuxFxVersion). Declarar
-# >=3.14 aqui impedia instalar o shared/ como pacote num venv 3.11 -- o deploy
-# so nao quebrava porque vendoriza os arquivos em vez de instalar.
+# 3.11 e o runtime do Function App na Azure (linuxFxVersion: Python|3.11).
 requires-python = ">=3.11"
 dependencies = [
     "azure-functions",

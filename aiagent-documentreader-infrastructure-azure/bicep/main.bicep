@@ -129,11 +129,11 @@ module appServiceFastApi 'app-service.json' = {
   params: {
     appServiceName: appServiceFastApiName
     appServicePlanName: appServicePlanBackendName
-    // 3.11 para bater com o runtime da function (functions.json ja recebe
-    // 'Python|3.11'). O shared/ e implantado nas duas aplicacoes, entao rodar o
-    // backend numa versao maior nao acrescenta nada e cria a classe de defeito
-    // em que o codigo funciona no backend e quebra no import da function.
-    PlatformInfo: { linuxPlatformVersion: 'PYTHON|3.11' }
+    // CONFERIR NA VM antes do deploy: tem de ser exatamente o linuxFxVersion que
+    // o servico roda hoje (az webapp config show --query linuxFxVersion).
+    // O backend fica em 3.14 de proposito; quem tem de continuar compativel com
+    // a 3.11 da function e o shared/, que vai para as duas aplicacoes.
+    PlatformInfo: { linuxPlatformVersion: 'PYTHON|3.14' }
     AlwaysOn: 'true'
     // Sem caminho de health check a plataforma sonda '/', que o backend nao
     // serve -- e e o nginx respondendo essa sonda que deixa um deploy

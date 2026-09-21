@@ -23,22 +23,23 @@ acrescentar uma dependência de ambiente, atualize aqui na mesma leva.
 npm i -g azurite azure-functions-core-tools@4
 ```
 
-## Python: 3.11 nos dois venvs
+## Python: duas versões, e o shared no menor delas
 
 | onde | versão | por quê |
 |---|---|---|
-| `function/.venv` | **3.11.14** | runtime do Function App na Azure (`linuxFxVersion: Python\|3.11`) |
-| `backend/.venv` | **3.11.14** | runtime do App Service do backend, desde que o `main.bicep` passa `PYTHON\|3.11` |
+| `function/.venv` | **3.11.14** | runtime do Function App na Azure; a 3.14 ainda não chegou lá |
+| `backend/.venv` | 3.14.2 | runtime do App Service do backend, onde a 3.14 roda normalmente |
 
-Uma versão só, de propósito: o `shared/` vai para as duas aplicações, então
-rodar o backend numa versão maior não acrescenta nada e cria a classe de defeito
-em que o código funciona no backend e quebra no import da function.
+`shared/pyproject.toml` declara `>=3.11`, não `>=3.14`, **de propósito**: o
+pacote é implantado nas duas aplicações, e sintaxe que só exista em 3.14 passa
+no backend e quebra no import da function. O piso do `shared` é sempre o menor
+dos dois runtimes.
 
 ```bash
 cd function && uv venv --python 3.11 .venv
 uv pip install --python .venv/bin/python -r requirements.txt
 
-cd backend && uv venv --python 3.11 .venv
+cd backend && uv venv --python 3.14 .venv
 uv pip install --python .venv/bin/python -r requirements.txt
 ```
 

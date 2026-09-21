@@ -2,9 +2,10 @@
 name = "shared"
 version = "0.1.0"
 description = "CAT Document Reader - dominio compartilhado (models, db, storage, config)"
-# 3.11 e o runtime das tres aplicacoes na Azure (linuxFxVersion). Declarar
-# >=3.14 aqui impedia instalar o shared/ como pacote num venv 3.11 -- o deploy
-# so nao quebrava porque vendoriza os arquivos em vez de instalar.
+# 3.11, e nao a 3.14 do backend: este pacote e implantado nas DUAS aplicacoes, e
+# a Function App roda 3.11 (o runtime 3.14 ainda nao chegou la). Sintaxe daqui
+# que so exista em 3.14 quebra no import da function, nao no backend -- entao o
+# piso do shared e o menor dos dois runtimes, sempre.
 requires-python = ">=3.11"
 dependencies = [
     "sqlalchemy>=2.0",
