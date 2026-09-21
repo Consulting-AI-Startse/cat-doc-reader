@@ -217,10 +217,11 @@ Duas consequências práticas:
 `scripts/build.sh` a partir de `shared/shared/`. Editar a cópia funciona até o
 próximo build sobrescrever em silêncio.
 
-**`shared/pyproject.toml` pede Python >= 3.14, mas a Function App roda 3.11.**
-Só não quebra porque o deploy vendoriza os arquivos em vez de instalar o pacote.
-Num venv local de 3.11 o `uv pip install -e ../shared` falha — use
-`scripts/build.sh`, que é o que o deploy faz.
+**As três aplicações rodam Python 3.11 na Azure.** Os três `pyproject.toml`
+pediam `>=3.14`, o que impedia instalar o `shared` como pacote num venv 3.11 e
+só não quebrava porque o deploy vendoriza os arquivos. Hoje todos declaram
+`>=3.11` e o backend foi conferido importando em 3.11. O vendoring continua
+sendo o mecanismo do deploy: para montar as cópias, `scripts/build.sh`.
 
 **Confiança auto-reportada pelo modelo não vale nada.** Um documento voltou com
 `confidence: 0.95` e quatro defeitos. Confiança útil vem do OCR (confiança por

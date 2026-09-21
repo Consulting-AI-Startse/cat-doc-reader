@@ -2,7 +2,10 @@
 name = "shared"
 version = "0.1.0"
 description = "CAT Document Reader - dominio compartilhado (models, db, storage, config)"
-requires-python = ">=3.14"
+# 3.11 e o runtime das tres aplicacoes na Azure (linuxFxVersion). Declarar
+# >=3.14 aqui impedia instalar o shared/ como pacote num venv 3.11 -- o deploy
+# so nao quebrava porque vendoriza os arquivos em vez de instalar.
+requires-python = ">=3.11"
 dependencies = [
     "sqlalchemy>=2.0",
     "psycopg[binary]",

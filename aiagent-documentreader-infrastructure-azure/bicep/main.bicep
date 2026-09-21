@@ -112,6 +112,13 @@ module appServiceFrontend 'app-service.json' = {
   params: {
     appServiceName: appServiceFrontendName
     appServicePlanName: appServicePlanFrontendName
+    // Sem runtime declarado o App Service cai na imagem Linux padrao, que e PHP:
+    // o nginx responde 200 no probe e a Azure reporta o app saudavel servindo
+    // nada do nosso codigo. Tinha de ser reaplicado a mao a cada deploy.
+    PlatformInfo: { linuxPlatformVersion: 'NODE|20-lts' }
+    // String, nao Bool -- e o tipo que o template declara. Sem isto o worker
+    // descarrega ocioso e a primeira requisicao depois refaz todo o startup.
+    AlwaysOn: 'true'
   }
 }
 
@@ -122,6 +129,18 @@ module appServiceFastApi 'app-service.json' = {
   params: {
     appServiceName: appServiceFastApiName
     appServicePlanName: appServicePlanBackendName
+    // 3.11 para bater com o runtime da function (functions.json ja recebe
+    // 'Python|3.11'). O shared/ e implantado nas duas aplicacoes, entao rodar o
+    // backend numa versao maior nao acrescenta nada e cria a classe de defeito
+    // em que o codigo funciona no backend e quebra no import da function.
+    PlatformInfo: { linuxPlatformVersion: 'PYTHON|3.11' }
+    AlwaysOn: 'true'
+    // Sem caminho de health check a plataforma sonda '/', que o backend nao
+    // serve -- e e o nginx respondendo essa sonda que deixa um deploy
+    // completamente quebrado se reportar saudavel. O frontend fica de fora de
+    // proposito: o server.js tem fallback de SPA, entao qualquer caminho
+    // devolve 200 e um health check ali passaria ate sem bundle.
+    healthCheckPath: '/health'
   }
 }
 

@@ -23,22 +23,27 @@ acrescentar uma dependência de ambiente, atualize aqui na mesma leva.
 npm i -g azurite azure-functions-core-tools@4
 ```
 
-## Python: duas versões de propósito
+## Python: 3.11 nos dois venvs
 
 | onde | versão | por quê |
 |---|---|---|
-| `function/.venv` | **3.11.14** | é o runtime do Function App na Azure (`linuxFxVersion: Python\|3.11`) |
-| `backend/.venv` | 3.14.2 | o que `backend/pyproject.toml` declara |
+| `function/.venv` | **3.11.14** | runtime do Function App na Azure (`linuxFxVersion: Python\|3.11`) |
+| `backend/.venv` | **3.11.14** | runtime do App Service do backend, desde que o `main.bicep` passa `PYTHON\|3.11` |
 
-A da function tem de ser 3.11 para o local bater com produção. Note que
-`shared/pyproject.toml` pede `>=3.14`, o que impede instalar o `shared` como
-pacote num venv 3.11 — por isso o `start-local.sh` roda `scripts/build.sh`, que
-vendoriza os arquivos, que é o que o deploy faz.
+Uma versão só, de propósito: o `shared/` vai para as duas aplicações, então
+rodar o backend numa versão maior não acrescenta nada e cria a classe de defeito
+em que o código funciona no backend e quebra no import da function.
 
 ```bash
 cd function && uv venv --python 3.11 .venv
 uv pip install --python .venv/bin/python -r requirements.txt
+
+cd backend && uv venv --python 3.11 .venv
+uv pip install --python .venv/bin/python -r requirements.txt
 ```
+
+O `shared` não é instalado como pacote em nenhum dos dois: é vendorizado por
+`scripts/build.sh`, que é o que o deploy faz.
 
 ## Pacotes que importam
 

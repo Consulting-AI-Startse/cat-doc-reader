@@ -103,7 +103,7 @@ az webapp config appsettings set -g $RG -n $APP --settings `
   DATABASE_URL="postgresql+psycopg://$APP@$PGHOST`:5432/documentreader?sslmode=require" `
   AZURE_STORAGE_ACCOUNT_URL="https://$ST.blob.core.windows.net" `
   BLOB_CONTAINER_NAME=invoices `
-  USE_REAL_SERVICES=false `
+  USE_REAL_SERVICES=true `
   CORS_ORIGINS="https://$FRONT.azurewebsites.net" `
   FUNCTION_URL="https://$FUNC.azurewebsites.net/api/process_document"
 ```
@@ -183,7 +183,7 @@ az functionapp config appsettings set -g $RG -n $FUNC --settings `
   DATABASE_URL="postgresql+psycopg://$FUNC@$PGHOST`:5432/documentreader?sslmode=require" `
   AZURE_STORAGE_ACCOUNT_URL="https://$ST.blob.core.windows.net" `
   BLOB_CONTAINER_NAME=invoices `
-  USE_REAL_SERVICES=false
+  USE_REAL_SERVICES=true
 ```
 
 ### 3.2 Deploy do código
@@ -232,7 +232,7 @@ az webapp restart -g $RG -n $APP
 1. Abra a UI: `https://aiagent-documentreader-pov-frontend-appservice.azurewebsites.net`
 2. "Novo documento", suba um PDF.
 3. Ele entra como **Recebido**, o backend chama a function, e em alguns segundos vira
-   **Para revisar** com os invoices e as linhas de part number (IA mockada).
+   **Para revisar** com os invoices e as linhas de part number (Document Intelligence + Azure OpenAI).
 4. Edite e **aprove** (aprovação por documento, human-in-the-loop).
 
 ---
