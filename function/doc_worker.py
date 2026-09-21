@@ -197,6 +197,47 @@ def process_document(
     return doc
 
 
+def mark_failed(document_id: UUID, message: str) -> str:
+    """Grava o fracasso que o worker nao conseguiu gravar sozinho.
+
+    O `except` do process_document() so roda se o processo continuar vivo. Quando
+    ele morre antes disso -- OOM no fallback por imagem, host reciclado -- ninguem
+    escreve nada e o documento fica em 'processing' para sempre, sem erro e sem
+    pista para quem revisa. Aconteceu duas vezes com o CIV.
+
+    Devolve o que foi feito, para o chamador registrar no log.
+    """
+    db = SessionLocal()
+    try:
+        doc = db.get(Document, document_id)
+        if doc is None:
+            return "not_found"
+
+        # Estado terminal nao e sobrescrito: o worker pode ter comitado o
+        # resultado e morrido logo depois, e ai o documento esta correto --
+        # marca-lo como error destruiria extracao boa.
+        if doc.status not in (DocumentStatus.received, DocumentStatus.processing):
+            return f"already_final:{doc.status.value}"
+
+        doc.status = DocumentStatus.error
+        doc.error_message = message
+        db.add(
+            DocumentEvent(
+                document_id=doc.id,
+                event_type="error",
+                actor="poison",
+                payload={"error": message},
+            )
+        )
+        db.commit()
+        return "marked"
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def process_document_task(document_id: UUID) -> None:
     db = SessionLocal()
     try:

@@ -4,7 +4,7 @@ from uuid import UUID
 
 import azure.functions as func
 
-from doc_worker import process_document_task
+from doc_worker import mark_failed, process_document_task
 
 # Nome valido de fila: minusculas, numeros e hifen, 3-63 caracteres.
 QUEUE_NAME = "document-processing"
@@ -28,7 +28,7 @@ def process_document(req: func.HttpRequest, msg: func.Out[str]) -> func.HttpResp
 
     document_id = body.get("document_id")
     if not document_id:
-        return func.HttpResponse("missing document_id", status)
+        return func.HttpResponse("missing document_id", status_code=400)
 
     try:
         UUID(str(document_id))
@@ -46,7 +46,7 @@ def process_document(req: func.HttpRequest, msg: func.Out[str]) -> func.HttpResp
 
 
 def _document_id_from(body: bytes) -> str:
-    """Aceita {"document_id": "..."} ou o id cru, para nao dep
+    """Aceita {"document_id": "..."} ou o id cru, para nao depender da
     codificacao que a fila usa."""
     text = body.decode("utf-8").strip()
     try:
@@ -73,11 +73,38 @@ def process_document_worker(msg: func.QueueMessage) -> None:
     connection="AzureWebJobsStorage",
 )
 def process_document_poison(msg: func.QueueMessage) -> None:
-    """Sem isto, uma mensagem que esgotou as tentativas desaparece em silencio e
-    o documento fica preso em 'processing' para sempre."""
+    """Fecha o documento cujo worker morreu antes de conseguir gravar o erro.
+
+    Sem isto a mensagem esgota as tentativas, some em silencio e o registro fica
+    preso em 'processing' para sempre -- falha invisivel, que e o pior modo de
+    falha que temos.
+    """
+    raw = _document_id_from(msg.get_body())
+
+    # O log vem antes do banco de proposito: se a gravacao falhar, a evidencia
+    # ja esta no App Insights e a funcao pode ser repetida sem perder o registro.
+    # Cuidado com o dequeue_count: aqui ele e o da mensagem NA FILA DE POISON,
+    # que recomeca em 1 -- o numero de falhas do worker e o maxDequeueCount do
+    # host.json, nao este.
     logger.error(
-        "POISON: documento %s falhou %s vezes e foi descartado; o registro fica "
-        "em 'processing' ate ser reprocessado",
-        _document_id_from(msg.get_body()),
+        "POISON: documento %s esgotou as tentativas do worker (leitura %s desta "
+        "mensagem na fila de poison)",
+        raw,
         msg.dequeue_count,
     )
+
+    try:
+        document_id = UUID(raw)
+    except (ValueError, AttributeError, TypeError):
+        logger.error("POISON: '%s' nao e um UUID; nada a marcar no banco", raw)
+        return
+
+    message = (
+        "o processamento falhou repetidamente e a mensagem foi descartada para a "
+        f"fila {QUEUE_NAME}-poison; a causa esta no log do worker (App Insights)"
+    )
+    # Deixa estourar: a falha vira nova tentativa deste handler, o que resolve
+    # indisponibilidade momentanea do banco. Silenciar aqui recriaria exatamente
+    # o buraco que esta funcao existe para tapar.
+    outcome = mark_failed(document_id, message)
+    logger.error("POISON: documento %s -> %s", document_id, outcome)

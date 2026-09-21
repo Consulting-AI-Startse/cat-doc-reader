@@ -7,7 +7,7 @@ Esforço: **XS** < 1h · **S** ~meio dia · **M** ~1–2 dias · **L** ~1 semana
 
 | # | item | esforço | valor | depende |
 |---|---|---|---|---|
-| 1 | Poison handler grava status `error` | XS | alto | — |
+| ~~1~~ | ~~Poison handler grava status `error`~~ | XS | alto | **feito** |
 | 2 | `Unit` e `Unit Weight` | S | médio | — |
 | 3 | Lista de PN: tabela, import CSV e checagem | M | **muito alto** | — |
 | 4 | Serial Number (tabela própria + regra ENGINE) | M | alto | 3 |
@@ -46,19 +46,32 @@ não foi definido pelo cliente.
 
 ---
 
-## 1. Poison handler grava status `error` (XS)
+## 1. Poison handler grava status `error` (XS) — **feito**
 
-**Aconteceu duas vezes hoje**, com o CIV: o worker morreu, a mensagem bateu em
-`MaxDequeueCount`, foi para `document-processing-poison`, o handler executou com
-sucesso — e o documento ficou em `processing` para sempre, sem erro e sem pista
-para quem revisa.
+O problema: o worker morria, a mensagem batia em `MaxDequeueCount`, ia para
+`document-processing-poison`, o handler executava com sucesso — e o documento
+ficava em `processing` para sempre, sem erro e sem pista para quem revisa.
+Aconteceu duas vezes com o CIV.
 
-`function/function_app.py`, em `process_document_poison`: extrair o
-`document_id` (já existe `_document_id_from`) e gravar `DocumentStatus.error`
-com mensagem dizendo que o processamento falhou duas vezes e apontando o log.
+`doc_worker.mark_failed(document_id, message)` grava `DocumentStatus.error`, o
+`error_message` e um `DocumentEvent` com `actor="poison"`;
+`process_document_poison` chama essa função depois de logar.
 
-Vale em produção tanto quanto local. Falha invisível é o pior modo de falha que
-temos.
+Três decisões que valem registrar:
+
+- **Estado terminal não é sobrescrito.** O worker pode ter comitado o resultado
+  e morrido logo depois (OOM no fallback por imagem, host reciclado): aí o
+  documento está correto e marcá-lo como `error` destruiria extração boa. Só
+  `received` e `processing` viram `error`.
+- **O log vem antes do banco.** Se a gravação falhar, a evidência já está no App
+  Insights.
+- **A falha de gravação estoura.** Vira nova tentativa do handler, o que resolve
+  indisponibilidade momentânea do banco; engolir a exceção recriaria exatamente
+  o buraco que a função existe para tapar.
+
+Cuidado com o `dequeue_count` dentro do handler de poison: ele é o da mensagem
+**na fila de poison**, que recomeça em 1. O número de falhas do worker é o
+`maxDequeueCount` do `host.json` (hoje 2), não aquele.
 
 ## 2. `Unit` e `Unit Weight` (S)
 
