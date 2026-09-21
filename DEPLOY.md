@@ -1,7 +1,7 @@
 # DEPLOY.md: subir o cat-doc-reader nos App Services da Caterpillar
 
 Guia de deploy por linha de comando (`az`), para rodar **da VM Windows da CAT**, com
-este repositório (`cat-doc-reader-azure/`) já presente na VM. Foco: **frontend** e
+o repo da CAT (`AICOE_AIagent_DocumentReader_POV`) já clonado na VM. Foco: **frontend** e
 **backend FastAPI**, cada um no seu App Service. O **Function App** entra como terceiro
 passo, porque o backend chama a function por HTTP (arquitetura separada, como planejado).
 
@@ -11,7 +11,8 @@ Modelo de trabalho: você roda estes comandos na VM; se algo falhar, cola o erro
 
 ## 0. Pré-requisitos (uma vez por sessão na VM)
 
-- Repo na VM (ex.: `C:\cat\cat-doc-reader-azure`).
+- Repo da CAT na VM: `C:\Users\souzal1\repos\AICOE_AIagent_DocumentReader_POV`.
+  O deploy sai dele, nao deste repo de desenvolvimento (ver `CLAUDE.md`).
 - **Node 20+** e **npm** (para buildar o frontend).
 - **az CLI** logado: `az login` (subscription IA COE Gen AI POV).
 - Para os passos que tocam o Postgres (principal da Managed Identity): portal
@@ -30,7 +31,7 @@ $PG     = "aiagent-documentreader-pov-postgresql-server"
 $ST     = "aiagentdocumentreaderpov"
 $GROUP  = "CATIT-GenAICOE-DocumentReaderPOV-Developer"
 $PGHOST = "aiagent-documentreader-pov-postgresql-server.postgres.database.azure.com"
-$repo   = "C:\cat\cat-doc-reader-azure"
+$repo   = "C:\Users\souzal1\repos\AICOE_AIagent_DocumentReader_POV"
 ```
 
 ### Ordem

@@ -19,6 +19,15 @@ merge entre eles:
 para lá**, e o repo da CAT é a referência do que está em produção. Se os dois
 divergirem, quem manda é o de lá.
 
+O repo da CAT está clonado na VM Windows em:
+
+```
+C:\Users\souzal1\repos\AICOE_AIagent_DocumentReader_POV
+```
+
+É contra esse caminho que os comandos de aplicação do patch são escritos (passo
+4 do fluxo), e é de lá que sai o deploy do `DEPLOY.md`.
+
 O espelhamento é por **patch escopado**, não por merge: `git diff` restrito aos
 diretórios de aplicação, conferido com `git apply --check` antes de aplicar. Como
 o patch chega até lá e quem abre o PR está na seção seguinte.
@@ -86,7 +95,8 @@ preciso ter instalado para isto rodar", e ele só serve se estiver certo.
 2. a mudanca e de teste local?  -> fica aqui, fim
    a mudanca e feature de verdade? -> tem de ir para a VM da CAT
 3. transporte: e-mail, no arquivo mais leve possivel (.txt com o diff)
-4. na VM: comandos de prompt do Windows para aplicar o diff
+4. na VM (C:\Users\souzal1\repos\AICOE_AIagent_DocumentReader_POV):
+   comandos de prompt do Windows para aplicar o diff
 5. o Luis cria a branch e abre o PR la
 ```
 
