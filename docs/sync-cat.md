@@ -12,7 +12,7 @@ estado do PR.
 
 ---
 
-## 2026-09-22 — LEIA-ME refeito da leva 2 · **aguardando PR**
+## 2026-09-22 — LEIA-ME refeito da leva 2 · **aplicada na VM, aguardando PR**
 
 Não é leva nova: é a **segunda tentativa de aplicar a leva abaixo**, que falhou
 na VM por dois motivos independentes. O `leva2.b64` não mudou e chegou íntegro;
@@ -84,7 +84,21 @@ pacote — prevista, a conferência só testa a nossa suposição contra ela mes
 sai dele é
 `3796ceda11302805d5d356eb6d8adfc747a1051f522e0c2b04f77acbbe346bf8`.
 
-**Estado:** pacote e instruções prontos, PR ainda não aberto.
+**Aplicada na VM em 2026-09-22.** Conferência dos seis blobs: 6/6 OK.
+`check_rules.py` 25/25. `import function_app` limpo. Os dois workflows copiados
+para `.github/workflows/`, sem tocar no que já estava lá.
+
+**Um susto no caminho, que não era da leva.** O `import function_app` falhou com
+`ModuleNotFoundError: No module named 'shared.config'`. Causa: `function/shared/`
+é gerada por `scripts/build` e gitignored — na VM ela existia mas estava
+**vazia**, só com um `__pycache__` órfão de 17/09. Diretório sem `__init__` vira
+namespace package, então `import shared` passa e o erro aponta para o submódulo,
+escondendo a causa. `scripts/build.ps1` resolveu. A linha que estourou
+(`doc_worker.py:9`) é idêntica antes e depois da leva — conferido por hash antes
+de mexer em qualquer coisa. Foi para o `docs/ambiente.md`.
+
+**Estado:** aplicada e verificada na VM; falta o Luis commitar, criar a branch e
+abrir o PR.
 
 ---
 

@@ -101,6 +101,36 @@ function/.venv/bin/python -c "import importlib.metadata as m; \
 print({p: m.version(p) for p in ('docling','torch','openai','azure-functions')})"
 ```
 
+## O `shared` vendorizado, e por que o `import function_app` mente sem ele
+
+`function/shared/` e `backend/shared/` são **geradas** por `scripts/build`
+(`.ps1` no Windows) a partir de `shared/shared/`, e são gitignored: não vêm no
+clone, não vêm em leva de espelhamento. Numa máquina onde o build nunca rodou,
+ou onde a cópia foi apagada, `from shared.config import settings` estoura com
+`ModuleNotFoundError: No module named 'shared.config'`.
+
+**O `import function_app` só é um teste honesto depois do build.** Antes dele,
+falha por ambiente e se lê como "a mudança quebrou a function" — foi exatamente
+o susto na VM da CAT ao aplicar a leva 2, com a leva correta e conferida.
+
+**Não confie em `Test-Path`/`ls` no diretório.** Na VM ele existia e estava
+vazio: sobrara só um `__pycache__` órfão de uma remoção parcial. Um diretório
+sem `__init__` vira namespace package, então `import shared` funciona e
+`shared.config` não existe — o erro aponta para o submódulo e esconde a causa.
+Confira o conteúdo:
+
+```powershell
+Get-ChildItem ./function/shared | Select-Object Name, Length
+# 5 modulos: __init__, config, db, models, storage
+```
+
+O `scripts/build` apaga antes de copiar, então resolve cópia parcial também.
+
+**Barra invertida antes de ponto some em alguns terminais.**
+`..\function\.venv\Scripts\python.exe` chegou como `..\function.venv\...` e o
+PowerShell não achou o executável. O PowerShell aceita barra normal, então use
+`../function/.venv/Scripts/python.exe` em instrução que vai ser colada.
+
 ## Memória
 
 O modo local com Docling é pesado. Numa máquina de 7 GB, o fallback por imagem
