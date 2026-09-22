@@ -12,7 +12,7 @@ estado do PR.
 
 ---
 
-## 2026-09-22 — leva 3: autenticação do deploy · **aguardando aplicação**
+## 2026-09-22 — leva 3: autenticação do deploy · **merjado**
 
 Um arquivo, `app-deploy.yml`, que vai para **dois lugares**: o diretório de
 infraestrutura (que espelha) e `.github/workflows/` (que executa).
@@ -50,11 +50,11 @@ base64 à parte: `LEIA-ME-LEVA3.b64`, 6627 bytes,
 **A lição foi para o `CLAUDE.md`:** workflow novo confere autenticação e nomes
 de variável contra `docs/cat-cd/` antes de sair, não depois do run falhar.
 
-**Estado:** pacote pronto, não aplicado.
+**Estado:** aplicada na VM e merjada na `main` em 2026-09-22.
 
 ---
 
-## 2026-09-22 — LEIA-ME refeito da leva 2 · **aplicada na VM, aguardando PR**
+## 2026-09-22 — LEIA-ME refeito da leva 2 · **merjado**
 
 Não é leva nova: é a **segunda tentativa de aplicar a leva abaixo**, que falhou
 na VM por dois motivos independentes. O `leva2.b64` não mudou e chegou íntegro;
@@ -139,12 +139,11 @@ escondendo a causa. `scripts/build.ps1` resolveu. A linha que estourou
 (`doc_worker.py:9`) é idêntica antes e depois da leva — conferido por hash antes
 de mexer em qualquer coisa. Foi para o `docs/ambiente.md`.
 
-**Estado:** aplicada e verificada na VM; falta o Luis commitar, criar a branch e
-abrir o PR.
+**Estado:** merjada na `main` em 2026-09-22.
 
 ---
 
-## 2026-09-21 — `feat/app-cicd-and-appservice-config` · **aguardando PR**
+## 2026-09-21 — `feat/app-cicd-and-appservice-config` · **merjado**
 
 Grupo A do change request e o CI/CD da aplicação. 6 arquivos, 2 deles novos.
 
@@ -193,7 +192,8 @@ produção. O `check_structurer.py` **não rodou** — depende do `raw-civ-cap.j
 **Decidido por sondagem:** a migração não entra no CD. O `POST /api/command` do
 SCM executa no container do Kudu (`exec: alembic: not found`, exit 127).
 
-**Estado:** pacote pronto, PR ainda não aberto.
+**Estado:** merjado na `main` em 2026-09-22, junto da leva 3. O histórico da
+tentativa está nas duas entradas acima.
 
 ---
 
