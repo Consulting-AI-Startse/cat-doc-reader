@@ -81,6 +81,15 @@ Três armadilhas de espelhamento, todas capazes de quebrar a produção:
   igual dos dois lados — então vão no patch, por caminho. Mas **o Actions só
   executa workflow de `.github/workflows/`**: do lado da CAT eles precisam ser
   copiados para lá. Espelhar o arquivo não é o mesmo que ativá-lo.
+- **Workflow novo confere autenticação e nomes de variável contra
+  `docs/cat-cd/`.** Os workflows de aplicação nasceram pedindo um
+  `secrets.AZURE_SUBSCRIPTION_ID` que não existe lá; o `azure/login` recebeu
+  string vazia e falhou com `Ensure 'subscription-id' is supplied`, erro que não
+  diz que o problema é a convenção. A CAT lê o valor de `.github/variables/*.env`
+  para o `GITHUB_ENV` num passo dedicado e usa `env.AZURESUBSCRIPTIONID` — é o
+  que os três workflows de infraestrutura já faziam, no repo, desde sempre. O
+  mesmo vale para `RESOURCEGROUPNAME`. **A referência está em `docs/cat-cd/`:
+  leia antes de escrever, não depois de o run falhar.**
 - **`.github/variables/*.env` foi removido do histórico deste repo** — carregava
   subscription ID, object ID de grupo AAD e client IDs da Caterpillar. Não
   recriar aqui, e não propagar a remoção para lá.

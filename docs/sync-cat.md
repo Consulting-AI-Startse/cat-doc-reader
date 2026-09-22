@@ -12,6 +12,48 @@ estado do PR.
 
 ---
 
+## 2026-09-22 — leva 3: autenticação do deploy · **aguardando aplicação**
+
+Um arquivo, `app-deploy.yml`, que vai para **dois lugares**: o diretório de
+infraestrutura (que espelha) e `.github/workflows/` (que executa).
+
+**O que quebrou.** Primeiro run do deploy depois da leva 2: `azure/login@v2`
+falhou com `Ensure 'subscription-id' is supplied or 'allow-no-subscriptions' is
+'true'`. Os quatro jobs pediam `secrets.AZURE_SUBSCRIPTION_ID`, que não existe
+no repo da CAT — o login recebeu string vazia. Na captura do run, `client-id` e
+`tenant-id` saem como `***` e `subscription-id` **não aparece**: ausência do
+campo é o sintoma de valor vazio.
+
+**A convenção certa estava no repo o tempo todo.** `docs/cat-cd/` tem os três
+workflows de infraestrutura, e os três carregam `.github/variables/*.env` para o
+`GITHUB_ENV` num passo dedicado e usam `env.AZURESUBSCRIPTIONID`. Conferido na
+VM: `pov.env` traz `AZURESUBSCRIPTIONID` **e** `RESOURCEGROUPNAME` (só os nomes
+das chaves foram lidos, nunca os valores).
+
+**O que muda:** passo `Carregar as variaveis` nos quatro jobs,
+`env.AZURESUBSCRIPTIONID` no login, `env.RESOURCEGROUPNAME` nos seis `az` (vinha
+de `vars.`, e pelo mesmo motivo estava vazio — seria a falha seguinte, num
+`az webapp deploy -g ""`), passo de derivação do RG como rede de segurança, e um
+`checkout` no job `settings`, que não tinha e portanto não teria os `.env` para
+ler.
+
+| | base | depois |
+|---|---|---|
+| `workflows/app-deploy.yml` | `42ababc3` | `4b70c9a8` |
+
+**Transporte:** `leva3.b64`, 7899 bytes,
+`641db7edbb9a385d8d6587cb1be6f1ea4da66bfeb8a3764fce8841d183a81a53`; o `.zip` é
+`b3524f8fc03830944ff5148a5c323928cc887a6ad05abcc7dd0ee011fb553556`. LEIA-ME em
+base64 à parte: `LEIA-ME-LEVA3.b64`, 6627 bytes,
+`d561a208c7aec44c173f3350b2a767b9636aa18abf02b4d3d0abc329b8887ca8`.
+
+**A lição foi para o `CLAUDE.md`:** workflow novo confere autenticação e nomes
+de variável contra `docs/cat-cd/` antes de sair, não depois do run falhar.
+
+**Estado:** pacote pronto, não aplicado.
+
+---
+
 ## 2026-09-22 — LEIA-ME refeito da leva 2 · **aplicada na VM, aguardando PR**
 
 Não é leva nova: é a **segunda tentativa de aplicar a leva abaixo**, que falhou
