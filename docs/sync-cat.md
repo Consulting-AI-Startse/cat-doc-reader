@@ -50,7 +50,19 @@ base64 à parte: `LEIA-ME-LEVA3.b64`, 6627 bytes,
 **A lição foi para o `CLAUDE.md`:** workflow novo confere autenticação e nomes
 de variável contra `docs/cat-cd/` antes de sair, não depois do run falhar.
 
-**Estado:** aplicada na VM e merjada na `main` em 2026-09-22.
+**Validada contra a Azure em 2026-09-22.** `workflow_dispatch` →
+`settings-only` a partir da `main`: `Settings da function (B2)` verde em 26s, os
+três jobs de publicação e a migração pulados, como esperado. O verde implica o
+`Verificar` com `exit 0` — as dez settings presentes e nenhuma truncada.
+
+Conferido antes de disparar: o `DATABASE_URL` em produção é **idêntico** ao que
+o job grava, e `USE_REAL_SERVICES`, `gpt-4.1` e `AZURE_DOCINTEL_HIGH_RES`
+também — o run era efetivamente um no-op, que era o ponto. O resource group é
+`aicoe_aiagent_documentreader_pov`, **não** o derivado
+`aiagent-documentreader-pov`: ler o `pov.env` era mesmo necessário, e o passo de
+derivação nunca será usado.
+
+**Estado:** aplicada na VM, merjada na `main` e validada em 2026-09-22.
 
 ---
 
