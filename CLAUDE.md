@@ -124,10 +124,12 @@ Para cada leva de mudancas que precisa ir para a VM, produza **quatro coisas**:
 
 1. **O diff em `.txt`**, escopado so ao que espelha (ver a tabela acima). Nunca
    incluir os arquivos do modo local.
-2. **O SHA-256 dos dois arquivos**, o `.b64` transportado e o `.patch` que sai
-   dele. O do `.b64` e o que importa: conferido antes de decodificar, separa
-   "chegou corrompido" de um erro cifrado do `certutil` ou do `git apply` meia
-   hora depois.
+2. **O SHA-256 do `.b64` e do `.zip`**, para conferir o transporte. O do `.b64`
+   e o que importa: conferido antes de decodificar, separa "chegou corrompido"
+   de um erro cifrado do `certutil` meia hora depois. **E o blob SHA-1 do git
+   de cada arquivo da leva, em duas colunas** -- base e depois -- para conferir
+   o repo. SHA-256 de arquivo nao serve para isso: o CRLF do checkout do
+   Windows garante que nunca bata (ver a secao acima).
 3. **Os comandos de Windows/PowerShell** para aplicar, conferir e testar --
    prontos para colar, rodando **a partir de `Downloads`** (nada de transporte
    entra no repo, ver abaixo) e sem depender de `python` no PATH (na VM nao
@@ -147,9 +149,33 @@ Então: **transporte é zip dos arquivos finais, em base64**, com o SHA-256 do
 `.b64` e do `.zip`. Sem contexto para casar, sem CRLF para negociar. O `git
 diff` continua sendo como se revisa aqui; só deixou de ser o formato de envio.
 
-E antes de sobrescrever qualquer arquivo que já existe lá, **confira o hash do
-que está lá** contra o que você usou de base. Se não bater, pare: pode haver
-trabalho que só existe do lado da CAT, e lá é a referência.
+E antes de sobrescrever qualquer arquivo que já existe lá, **confira o que está
+lá** contra o que você usou de base. Se não bater, pare: pode haver trabalho que
+só existe do lado da CAT, e lá é a referência.
+
+**Mas não confira por SHA-256 de arquivo — confira pelo blob do git.** O repo
+não tem `.gitattributes`, então o checkout do Windows grava CRLF e todo arquivo
+de texto no disco da VM tem bytes diferentes dos daqui. Um SHA-256 calculado
+aqui **nunca** bate lá, e o alarme falso se lê exatamente como "há trabalho só
+do lado da CAT, pare" — que é o oposto do que está acontecendo. Já custou uma
+leva: os três hashes que chegaram a sair na VM estavam todos certos, e só se
+revelaram certos depois de converter a base para CRLF.
+
+O blob SHA-1 do git é calculado sobre o conteúdo normalizado em LF, então é
+igual nos dois repos apesar dos históricos independentes:
+
+```bash
+git rev-parse HEAD:<caminho>     # o que o commit tem (os dois lados)
+git hash-object -- <caminho>     # o que o arquivo na árvore tem
+```
+
+Mande as duas colunas no LEIA-ME: o blob da **base** (o que tem de estar lá
+antes) e o blob **depois** da leva. A segunda coluna paga por si: um arquivo que
+já está no valor "depois" foi aplicado numa tentativa anterior, que é
+precisamente o diagnóstico que custou a leva 2.
+
+O SHA-256 continua valendo para o `.b64` e o `.zip` — ali o que se confere é o
+transporte, byte a byte, e não há checkout no meio.
 
 ### O transporte tem de preservar os bytes
 

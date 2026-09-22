@@ -12,6 +12,65 @@ estado do PR.
 
 ---
 
+## 2026-09-22 — LEIA-ME refeito da leva 2 · **aguardando PR**
+
+Não é leva nova: é a **segunda tentativa de aplicar a leva abaixo**, que falhou
+na VM por dois motivos independentes. O `leva2.b64` não mudou e chegou íntegro;
+o que foi reenviado foi só o arquivo de instruções.
+
+**O que falhou:**
+
+1. **O LEIA-ME foi mandado em texto puro.** O filtro de links reescreveu
+   `function\doc_worker` + extensão dentro dele (a extensão é TLD do Paraguai),
+   virando um `urldefense` no meio do caminho. O PowerShell leu `function\https`
+   como nome de drive: `DriveNotFoundException`. **Exatamente a armadilha que a
+   leva do poison handler já tinha registrado** — a regra existia, não foi
+   seguida. Agora o LEIA-ME também vai em base64, e os nomes de arquivo dentro
+   dele são montados em pedaços.
+2. **A conferência de hash não podia dar certo.** O LEIA-ME trazia SHA-256 dos
+   4 arquivos a sobrescrever, calculados aqui, em LF. O repo não tem
+   `.gitattributes`, então o checkout do Windows grava CRLF e nenhum deles
+   bateria nunca.
+
+**O que os hashes da VM provaram, depois de convertidos:**
+
+| arquivo | VM | base daqui, em CRLF |
+|---|---|---|
+| `bicep/main.bicep` | `37b5d393…` | `37b5d393…` ✅ |
+| `function/pyproject.toml` | `97922cce…` | `97922cce…` ✅ |
+| `shared/pyproject.toml` | `66d5b343…` | `66d5b343…` ✅ |
+
+Ou seja: **a VM está exatamente na base esperada**, sem nenhum trabalho local
+nesses arquivos. O alarme era falso — e é o tipo de alarme falso que se lê como
+"há trabalho só do lado da CAT, pare", que é o oposto da verdade.
+
+**A correção, agora no `CLAUDE.md`:** conferir pelo **blob SHA-1 do git**
+(`git rev-parse HEAD:<caminho>` e `git hash-object -- <caminho>`), que é
+calculado sobre o conteúdo normalizado em LF e portanto é igual nos dois repos
+apesar dos históricos independentes. Em duas colunas, base e depois — a coluna
+"depois" detecta de graça o arquivo que já foi aplicado numa tentativa anterior,
+que foi o outro motivo de a leva 2 ter se perdido.
+
+Blobs desta leva:
+
+| arquivo | base | depois |
+|---|---|---|
+| `bicep/main.bicep` | `cf378540` | `b2ba489a` |
+| `workflows/app-ci.yml` | — novo | `5fa4d59c` |
+| `workflows/app-deploy.yml` | — novo | `42ababc3` |
+| `function/doc_worker` | `1f3efcab` | `618767fe` |
+| `function/pyproject.toml` | `95599ffe` | `ab668d0e` |
+| `shared/pyproject.toml` | `be062cec` | `4f4115d3` |
+
+**Transporte do LEIA-ME:** `LEIA-ME-VM.b64`, 14849 bytes,
+`b0f1697926a86dc0004c435ec744ef5de58c4e77f26251b4d02327701bfa7498`; o `.txt` que
+sai dele é
+`54ff147ef0598d0ca39744ddf3159e4ef259ded88af1f1d87da2c71c7043998a`.
+
+**Estado:** pacote e instruções prontos, PR ainda não aberto.
+
+---
+
 ## 2026-09-21 — `feat/app-cicd-and-appservice-config` · **aguardando PR**
 
 Grupo A do change request e o CI/CD da aplicação. 6 arquivos, 2 deles novos.
