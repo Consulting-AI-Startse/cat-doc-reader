@@ -45,13 +45,30 @@ o patch chega até lá e quem abre o PR está na seção seguinte.
 | `aiagent-documentreader-infrastructure-azure/` | `.env.local`, `.local/` |
 | | as linhas locais do `.funcignore` |
 
-¹ **O `doc_worker.py` já divergiu dos dois lados, e não diverge mais.** Os
-blocos de modo local moravam nele, só existiam aqui, e faziam o contexto ter ~24
-linhas a mais — nenhum `git diff` do arquivo aplicava lá, o que custou uma leva
-inteira. Foram extraídos para `function/doc_worker_local.py`, que nunca espelha;
-o que sobrou no `doc_worker.py` é um `import` protegido por `try/except
-ModuleNotFoundError`, idêntico nos dois repos. **Se algum dia voltar a aparecer
-código de modo local dentro deste arquivo, a divergência volta junto.**
+¹ **O `doc_worker.py` já divergiu dos dois lados, e a divergência está sendo
+encerrada.** Os blocos de modo local moravam nele, só existiam aqui, e faziam o
+contexto ter ~24 linhas a mais — nenhum `git diff` do arquivo aplicava lá, o que
+custou uma leva inteira. Foram extraídos para `function/doc_worker_local.py`,
+que nunca espelha; o que sobrou no `doc_worker.py` é um `import` protegido por
+`try/except ModuleNotFoundError`.
+
+**Esse gancho é código que espelha** — são 14 linhas, e é justamente elas que
+tornam os dois arquivos idênticos. Do lado da CAT ele é inerte: o módulo não
+existe lá, o `import` levanta `ModuleNotFoundError`, sobra `_local = None` e o
+caminho de produção segue direto. A extração não eliminou a divergência sozinha;
+ela a **reduziu de 24 para 14 linhas e a tornou espelhável**, porque as 24 nunca
+poderiam ir para lá e as 14 podem:
+
+```
+antes da extracao:   nosso = CAT + 24 linhas de modo local
+depois da extracao:  nosso = CAT + 14 linhas de gancho
+depois da leva:      nosso = CAT
+```
+
+A identidade só vale **depois que a leva `feat/app-cicd-and-appservice-config`
+for aplicada na CAT**; até lá, o arquivo ainda difere e a base de lá não é
+nenhum estado commitado aqui. **Se algum dia voltar a aparecer código de modo
+local dentro deste arquivo, a divergência volta junto.**
 
 Três armadilhas de espelhamento, todas capazes de quebrar a produção:
 

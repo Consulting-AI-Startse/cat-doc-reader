@@ -89,8 +89,11 @@ tres pontos independentes:
 O `doc_worker_local.py` existe por um motivo alem da arrumacao: enquanto os blocos de
 modo local moravam dentro do `doc_worker.py`, esse arquivo divergia do repo da
 Caterpillar em ~24 linhas, e **nenhum `git diff` dele aplicava la**. Ja custou uma leva
-inteira de espelhamento. Com a extracao, o `doc_worker.py` volta a ser identico nos dois
-repos.
+inteira de espelhamento. Com a extracao sobra so o gancho -- 14 linhas de `try/except`
+mais dois guardas -- e **esse gancho espelha**: e ele que torna os dois arquivos
+identicos, e do lado da CAT e inerte, porque o modulo nao existe la e sobra `None`. A
+identidade vale depois que a leva `feat/app-cicd-and-appservice-config` for aplicada;
+ate la o arquivo ainda difere, em 14 linhas em vez de 24.
 
 Nao sao substitutos do Document Intelligence: o caminho PDF do Docling perde pagina
 escaneada inteira (62 chars nas paginas 4-6 do CIV), e a saida so volta pelo fallback que
