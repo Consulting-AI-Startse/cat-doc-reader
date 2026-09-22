@@ -58,14 +58,31 @@ Blobs desta leva:
 | `bicep/main.bicep` | `cf378540` | `b2ba489a` |
 | `workflows/app-ci.yml` | — novo | `5fa4d59c` |
 | `workflows/app-deploy.yml` | — novo | `42ababc3` |
-| `function/doc_worker` | `1f3efcab` | `618767fe` |
+| `function/doc_worker` | `63333378` ¹ | `618767fe` |
 | `function/pyproject.toml` | `95599ffe` | `ab668d0e` |
 | `shared/pyproject.toml` | `be062cec` | `4f4115d3` |
 
+¹ **Corrigido depois de a conferência acusar `DIVERGE` na VM.** Eu tinha
+previsto `1f3efcab`, o nosso blob no commit do poison handler. Errado: entre o
+`Refine OCR extraction` e aquele commit, o `doc_worker` recebeu quatro commits
+de modo local (extractor Docling, structurer OpenRouter, fallback por página,
+correção do RapidOCR), **nenhum deles espelhado** — então a CAT nunca passou
+por esse estado. A base real de lá é o nosso HEAD **menos o gancho de modo
+local**, reconstruída e conferida por hash: dá `63333378…`, exatamente o que a
+VM reportou. O `mark_failed` é idêntico dos dois lados.
+
+Não havia trabalho da CAT em risco, e esta leva é justamente o que encerra essa
+divergência: depois de aplicada, o arquivo fica idêntico nos dois repos.
+
+A lição foi para o `CLAUDE.md`: **não prever a base a partir do nosso
+histórico**. Para arquivo tocado por commit que não espelha, o blob da CAT não
+existe aqui. Pedir `git rev-parse HEAD:<caminho>` na VM antes de montar o
+pacote — prevista, a conferência só testa a nossa suposição contra ela mesma.
+
 **Transporte do LEIA-ME:** `LEIA-ME-VM.b64`, 14849 bytes,
-`b0f1697926a86dc0004c435ec744ef5de58c4e77f26251b4d02327701bfa7498`; o `.txt` que
+`31d50fa9d3d5ad27ea3fcaf3efa6f481698e892ec0307cc2d5f032374c958c0f`; o `.txt` que
 sai dele é
-`54ff147ef0598d0ca39744ddf3159e4ef259ded88af1f1d87da2c71c7043998a`.
+`3796ceda11302805d5d356eb6d8adfc747a1051f522e0c2b04f77acbbe346bf8`.
 
 **Estado:** pacote e instruções prontos, PR ainda não aberto.
 

@@ -174,6 +174,19 @@ antes) e o blob **depois** da leva. A segunda coluna paga por si: um arquivo que
 já está no valor "depois" foi aplicado numa tentativa anterior, que é
 precisamente o diagnóstico que custou a leva 2.
 
+**Não preveja a base a partir do nosso histórico — peça ao outro lado.** Para
+qualquer arquivo tocado por um commit que não espelha, o blob da CAT não existe
+em lugar nenhum daqui, e não há como derivá-lo de um `git log`. Foi o que
+aconteceu com o `doc_worker.py`: entre `Refine OCR extraction` e o poison
+handler ele recebeu quatro commits de modo local, nenhum deles espelhado, então
+a base real da CAT era "o nosso HEAD menos o gancho de modo local" — um estado
+que nunca foi commitado aqui. A previsão deu um falso "DIVERGE" e parou a leva.
+
+O barato é inverter a ordem: **antes de montar o pacote, peça os blobs da VM**
+(`git rev-parse HEAD:<caminho>`, um por arquivo da leva) e monte a coluna "base"
+com o que voltou. Um comando, uma resposta, e a conferência passa a valer
+alguma coisa — prevista, ela só testa a nossa suposição contra ela mesma.
+
 O SHA-256 continua valendo para o `.b64` e o `.zip` — ali o que se confere é o
 transporte, byte a byte, e não há checkout no meio.
 
