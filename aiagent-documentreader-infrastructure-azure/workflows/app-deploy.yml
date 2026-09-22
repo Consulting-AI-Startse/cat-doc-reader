@@ -166,12 +166,25 @@ jobs:
           npm ci
           npm run build
 
+      - name: Carregar as variaveis
+        shell: pwsh
+        run: |
+          Get-Content ".github/variables/global.env" | Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -notmatch '^\s*$' } >> $env:GITHUB_ENV
+          Get-Content ".github/variables/${{ env.ENVIRONMENT }}.env" | Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -notmatch '^\s*$' } >> $env:GITHUB_ENV
+
+      - name: Derivar o resource group
+        shell: pwsh
+        run: |
+          if (-not $env:RESOURCEGROUPNAME) {
+            echo "RESOURCEGROUPNAME=${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}" >> $env:GITHUB_ENV
+          }
+
       - uses: azure/login@v2
         with:
           environment: AzureCloud
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          subscription-id: ${{ env.AZURESUBSCRIPTIONID }}
 
       # O server.js e o dist/ sobem juntos: e ele que serve o bundle com
       # fallback de SPA. Sem ele o App Service nao tem o que executar.
@@ -181,7 +194,7 @@ jobs:
 
       - name: Publicar
         run: |
-          az webapp deploy -g "${{ vars.RESOURCEGROUPNAME }}" \
+          az webapp deploy -g "${{ env.RESOURCEGROUPNAME }}" \
             -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-frontend-appservice" \
             --src-path frontend.zip --type zip
 
@@ -190,7 +203,7 @@ jobs:
       # container sobe o entrypoint da imagem em vez da aplicacao.
       - name: Startup command (B1)
         run: |
-          az webapp config set -g "${{ vars.RESOURCEGROUPNAME }}" \
+          az webapp config set -g "${{ env.RESOURCEGROUPNAME }}" \
             -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-frontend-appservice" \
             --startup-file "node server.js"
 
@@ -214,12 +227,25 @@ jobs:
       - name: Vendorizar o shared
         run: bash scripts/build.sh
 
+      - name: Carregar as variaveis
+        shell: pwsh
+        run: |
+          Get-Content ".github/variables/global.env" | Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -notmatch '^\s*$' } >> $env:GITHUB_ENV
+          Get-Content ".github/variables/${{ env.ENVIRONMENT }}.env" | Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -notmatch '^\s*$' } >> $env:GITHUB_ENV
+
+      - name: Derivar o resource group
+        shell: pwsh
+        run: |
+          if (-not $env:RESOURCEGROUPNAME) {
+            echo "RESOURCEGROUPNAME=${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}" >> $env:GITHUB_ENV
+          }
+
       - uses: azure/login@v2
         with:
           environment: AzureCloud
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          subscription-id: ${{ env.AZURESUBSCRIPTIONID }}
 
       - name: Empacotar
         working-directory: backend
@@ -227,13 +253,13 @@ jobs:
 
       - name: Publicar
         run: |
-          az webapp deploy -g "${{ vars.RESOURCEGROUPNAME }}" \
+          az webapp deploy -g "${{ env.RESOURCEGROUPNAME }}" \
             -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice" \
             --src-path backend.zip --type zip
 
       - name: Startup command (B1)
         run: |
-          az webapp config set -g "${{ vars.RESOURCEGROUPNAME }}" \
+          az webapp config set -g "${{ env.RESOURCEGROUPNAME }}" \
             -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice" \
             --startup-file "python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
@@ -279,12 +305,25 @@ jobs:
           pip install -r function/requirements.txt
           cd function && python -c "import function_app"
 
+      - name: Carregar as variaveis
+        shell: pwsh
+        run: |
+          Get-Content ".github/variables/global.env" | Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -notmatch '^\s*$' } >> $env:GITHUB_ENV
+          Get-Content ".github/variables/${{ env.ENVIRONMENT }}.env" | Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -notmatch '^\s*$' } >> $env:GITHUB_ENV
+
+      - name: Derivar o resource group
+        shell: pwsh
+        run: |
+          if (-not $env:RESOURCEGROUPNAME) {
+            echo "RESOURCEGROUPNAME=${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}" >> $env:GITHUB_ENV
+          }
+
       - uses: azure/login@v2
         with:
           environment: AzureCloud
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          subscription-id: ${{ env.AZURESUBSCRIPTIONID }}
 
       - uses: Azure/functions-action@v1
         with:
@@ -314,19 +353,40 @@ jobs:
       id-token: write
       contents: read
     steps:
+      - uses: actions/checkout@v4
+
+      # A CAT nao guarda o subscription id como secret: ele vem de
+      # .github/variables/*.env, carregado para o GITHUB_ENV. E a mesma coisa
+      # que os workflows de infraestrutura fazem -- ver docs/cat-cd/. Pedir um
+      # secrets.AZURE_SUBSCRIPTION_ID inexistente rende o login vazio e o erro
+      # "Ensure 'subscription-id' is supplied", que nao diz que o problema e a
+      # convencao errada.
+      - name: Carregar as variaveis
+        shell: pwsh
+        run: |
+          Get-Content ".github/variables/global.env" | Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -notmatch '^\s*$' } >> $env:GITHUB_ENV
+          Get-Content ".github/variables/${{ env.ENVIRONMENT }}.env" | Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -notmatch '^\s*$' } >> $env:GITHUB_ENV
+
+      - name: Derivar o resource group
+        shell: pwsh
+        run: |
+          if (-not $env:RESOURCEGROUPNAME) {
+            echo "RESOURCEGROUPNAME=${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}" >> $env:GITHUB_ENV
+          }
+
       - uses: azure/login@v2
         with:
           environment: AzureCloud
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          subscription-id: ${{ env.AZURESUBSCRIPTIONID }}
 
       - name: Aplicar
         shell: bash
         run: |
           set -euo pipefail
           PREFIX="${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}"
-          RG="${{ vars.RESOURCEGROUPNAME }}"
+          RG="${{ env.RESOURCEGROUPNAME }}"
           FUNC="${PREFIX}-backend-function"
 
           # Mesmo calculo do main.bicep:
@@ -359,7 +419,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          RG="${{ vars.RESOURCEGROUPNAME }}"
+          RG="${{ env.RESOURCEGROUPNAME }}"
           FUNC="${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-backend-function"
 
           az functionapp config appsettings list -g "$RG" -n "$FUNC" \
