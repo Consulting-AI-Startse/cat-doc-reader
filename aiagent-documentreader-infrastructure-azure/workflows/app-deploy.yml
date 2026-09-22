@@ -263,18 +263,32 @@ jobs:
             -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice" \
             --startup-file "python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
+      # 5 minutos nao bastam: o Oryx roda o pip install no servidor e o
+      # container ainda faz cold start depois. Medido em 22/09 -- o job falhou
+      # e o /health respondeu 200 no primeiro curl manual, logo em seguida.
+      #
+      # O codigo de cada tentativa e impresso: a versao anterior engolia o
+      # status em /dev/null, entao a falha nao distinguia "ainda subindo" de
+      # "503 permanente" nem de "nome errado". Falha muda e o modo de falha que
+      # este repo combate.
       - name: Smoke test
         run: |
           host="${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice"
           # Montado em pedacos: o filtro de e-mail reescreve enderecos literais,
           # e este arquivo ja viajou por e-mail uma vez.
           dom=$(printf '%s.%s' azurewebsites net)
-          for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "https://${host}.${dom}/health" || true)
+          url="https://${host}.${dom}/health"
+          code=000
+          for i in $(seq 1 40); do
+            code=$(curl -s -m 20 -o /tmp/health.out -w '%{http_code}' "$url" || echo 000)
+            echo "  tentativa $i/40: $code"
             [ "$code" = "200" ] && { echo "health OK"; exit 0; }
-            sleep 10
+            sleep 15
           done
-          echo "::error::/health nao respondeu 200 em 5 minutos"; exit 1
+          echo "::error::/health nao respondeu 200 em 10 minutos (ultimo codigo: $code)"
+          echo "--- ultimo corpo recebido ---"
+          head -c 2000 /tmp/health.out || true
+          exit 1
 
   # ==========================================================================
   # Function
