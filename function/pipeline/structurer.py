@@ -52,6 +52,9 @@ Return ONLY JSON in exactly this shape:
 "country_of_origin", "domestic_freight", "packaging", "exporter", "supplier",
 "manufacturer"}]}], "confidence": 0..1}
 
+Every monetary and quantity field above is a STRING copied as printed -- see
+rule 6. "confidence" is the one number you report as a number.
+
 HARD RULES — these are the errors that have actually occurred:
 
 1. INVOICE NUMBER. Use the number the DOCUMENT gives as its own invoice
@@ -83,16 +86,28 @@ HARD RULES — these are the errors that have actually occurred:
    invoice freight on every line. Use "domestic_freight" on a line only when the
    document itemises freight for that specific line.
 
-   Put a packaging or crating CHARGE in "packaging_cost", as a number, when the
-   document bills one ("plus package", "packing charge", "embalagem"). Report it
+   Put a packaging or crating CHARGE in "packaging_cost", copied as printed
+   (rule 6), when the document bills one ("plus package", "packing charge", "embalagem"). Report it
    ONCE, at invoice level. "packaging" is a different field and stays the
    physical description of the packing ("1 PALLET").
 
 5. TOTAL. "total" is the invoice total as printed on the document, including
    freight. Read it; do not compute it.
 
-6. NUMBERS. Plain digits with a period as decimal separator. No thousands
-   separators, no currency symbols, no spaces.
+6. NUMBERS. Copy every number EXACTLY as the document prints it, as a JSON
+   string. "22.944,02" stays "22.944,02"; "29,579.82" stays "29,579.82".
+   Keep the separators and the sign. Convert nothing, round nothing, drop no
+   digit. Do NOT normalise to a decimal point and do NOT remove thousands
+   separators. Code downstream converts both conventions.
+   This rule exists because you get it wrong: on one invoice, the same printed
+   "22.944,02" came back as 22944.02 in four runs and as 22.94 in four others.
+   The LINE amounts were right every time, because "161,75 x 10 = 1.617,50"
+   anchors the convention; the invoice TOTAL stands alone with no anchor, so
+   the separator became a guess. Copying removes the guess.
+   A currency symbol or code next to the number is not part of it; leave it out.
+   ONE exception: the unit_price you derive under rule 3 was never printed, so
+   there is nothing to copy -- write that one with a period as the decimal
+   separator and no thousands separator. Every number you READ is copied.
 
 7. Never invent a value; use null when a field is absent from the document.
 
@@ -124,6 +139,25 @@ the text says it applies to both.
 
 def _s(v) -> str | None:
     return None if v is None else str(v)
+
+
+def _snum(v) -> str | None:
+    """Numero em forma canonica: '6.398,88' -> '6398.88'. None se nao for numero.
+
+    Existe porque a regra 6 passou a mandar o modelo COPIAR o numero como
+    impresso, em vez de normalizar. Quem normaliza agora e o _num(), que e
+    deterministico -- mas a saida do structurer precisa sair convertida, senao
+    o Decimal() do doc_worker recebe '6.398,88', levanta InvalidOperation e o
+    campo e gravado NULL sem uma nota. Era o pior modo de falha possivel: a
+    conferencia aritmetica passa (ela usa _num) e o documento e salvo vazio.
+
+    Quatro casas e o maximo do schema (Numeric(18,4) em quantity e unit_price);
+    os zeros a direita saem para nao gravar '52.0000' onde se le '52'.
+    """
+    n = _num(v)
+    if n is None:
+        return None
+    return ("%.4f" % n).rstrip("0").rstrip(".") or "0"
 
 
 def _num(v):
@@ -523,15 +557,15 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
                 "part_number_suffix": li.get("part_number_suffix"),
                 "part_number_status": li.get("part_number_status"),
                 "description": li.get("description"),
-                "quantity": _s(li.get("quantity")),
-                "unit_price": _s(li.get("unit_price")),
+                "quantity": _snum(li.get("quantity")),
+                "unit_price": _snum(li.get("unit_price")),
                 "unit_price_landed": li.get("unit_price_landed"),
-                "amount": _s(li.get("amount")),
+                "amount": _snum(li.get("amount")),
                 "amount_landed": li.get("amount_landed"),
                 "purchase_order": li.get("purchase_order"),
                 "incoterm": li.get("incoterm"),
                 "country_of_origin": li.get("country_of_origin"),
-                "domestic_freight": _s(li.get("domestic_freight")),
+                "domestic_freight": _snum(li.get("domestic_freight")),
                 "packaging": _s(li.get("packaging")),
                 "exporter": li.get("exporter"),
                 "supplier": li.get("supplier"),
@@ -549,8 +583,8 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
             "currency": inv.get("currency"),
             # Emitidos para que unit_price_landed seja auditavel: sem eles nao
             # se sabe de que encargo veio o rateio.
-            "freight": _s(inv.get("freight")),
-            "packaging_cost": _s(inv.get("packaging_cost")),
+            "freight": _snum(inv.get("freight")),
+            "packaging_cost": _snum(inv.get("packaging_cost")),
             "total": total,
             "line_items": line_items,
         })
