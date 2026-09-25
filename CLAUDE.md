@@ -173,6 +173,12 @@ Para cada leva de mudancas que precisa ir para a VM, produza **quatro coisas**:
    passa. E o `.txt` decodificado tem de ser executavel de ponta a ponta:
    qualquer prosa vai em comentario `#`, porque texto solto quebra a execucao.
 
+   **Entregar o `.b64` sem o comando de rodar nao e entrega.** Junto dos
+   arquivos vao sempre: os comandos exatos, **com os nomes reais desta leva**
+   (nunca `<leva>` generico), e em **qual maquina** rodam -- a VM da CAT
+   (`souzal1`), nao a maquina de desenvolvimento (`luisf`). Os dois `.b64` vao
+   por e-mail e ficam em `Downloads` do lado de la; o script acha o zip sozinho.
+
    Rodar um `.txt` exige `Invoke-Expression`; o `-File` e o dot-source do
    PowerShell so aceitam `.ps1`:
 
