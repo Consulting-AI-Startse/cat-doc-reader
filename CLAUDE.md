@@ -40,7 +40,8 @@ o patch chega até lá e quem abre o PR está na seção seguinte.
 | `shared/shared/` | `function/pipeline/structurer_local.py` |
 | `function/pipeline/structurer.py`, `extractor.py` | `function/doc_worker_local.py` |
 | `function/doc_worker.py`¹, `function_app.py` | `function/requirements-local.txt` |
-| `check_rules.py`, `check_structurer.py` | `start-local.sh`, `stop-local.sh` |
+| `check_rules.py`, `check_structurer.py`, `check_dedupe.py` | `start-local.sh`, `stop-local.sh` |
+| `DEPLOY.md`, `scripts/` | |
 | `backend/alembic/versions/`, `db/db-setup-v2.sql` | `docs/modo-local.md`, `docs/cat-cd/` |
 | `aiagent-documentreader-infrastructure-azure/` | `.env.local`, `.local/` |
 | | as linhas locais do `.funcignore` |
@@ -94,6 +95,15 @@ Três armadilhas de espelhamento, todas capazes de quebrar a produção:
 - **`.github/variables/*.env` foi removido do histórico deste repo** — carregava
   subscription ID, object ID de grupo AAD e client IDs da Caterpillar. Não
   recriar aqui, e não propagar a remoção para lá.
+
+**A tabela já esteve incompleta duas vezes, e o sintoma é sempre o mesmo:** um
+arquivo que existe dos dois lados, nunca foi espelhado, e só aparece quando
+alguém confere os blobs. Aconteceu com `backend/app/api/documents.py` e
+`frontend/src/pages/DocumentDetail.tsx` na leva 4, e com o `DEPLOY.md` na leva
+5 — os três estavam na versão de 27/08, do `init`. O `DEPLOY.md` de lá ainda
+mandava configurar `USE_REAL_SERVICES=false`, que é o que faz a function rodar
+mockada sem emitir erro. **Conferir a árvore inteira com `git ls-tree -r HEAD`
+custa um comando e responde isso de uma vez.**
 
 ## Os artefatos do cliente não estão no repo — peça
 
