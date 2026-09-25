@@ -130,8 +130,20 @@ espera_porta 10000 azurite
 # --- 3. Banco ----------------------------------------------------------------
 head "[3/5] banco"
 if [ "$FRESH" = 1 ]; then
+    # DROP SCHEMA, nao 'alembic downgrade base'. O downgrade da 0002 converte
+    # packaging de volta para NUMERIC e estoura contra dado real ("Caixa de
+    # madeira 1200x600x361 mm"): a migracao e irreversivel na pratica. Pior, o
+    # erro vinha com '|| true' e o script anunciava um reset que nao acontecia
+    # -- o banco seguia cheio e o proximo 'upgrade head' dizia "migracoes em
+    # dia", que era verdade e enganava junto.
     c_warn "RESET: derrubando e recriando o schema"
-    ( cd "$ROOT/backend" && DATABASE_URL="$DB_URL" uv run alembic downgrade base >/dev/null 2>&1 || true )
+    psql_reset=$(PGPASSWORD="${DB_PASS:-invoice}" psql -h localhost -U "${DB_USER:-invoice}" \
+        -d "${DB_NAME:-documentreader}" -q \
+        -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" 2>&1) || {
+        c_err "nao consegui derrubar o schema:"
+        echo "$psql_reset"
+        exit 1
+    }
 fi
 ( cd "$ROOT/backend" && DATABASE_URL="$DB_URL" uv run alembic upgrade head > "$LOGS/alembic.log" 2>&1 ) \
     && c_ok "migracoes em dia" \

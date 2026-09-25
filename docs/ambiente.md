@@ -79,6 +79,19 @@ CREATE DATABASE documentreader OWNER invoice;
 
 Depois, `alembic upgrade head` (o `start-local.sh` já faz).
 
+Para zerar: `./start-local.sh --fresh`, que faz `DROP SCHEMA public CASCADE` e
+remigra. **Não use `alembic downgrade base`** — o downgrade da `0002` converte
+`packaging` de volta para `NUMERIC` e estoura contra dado real. O `--fresh`
+usava isso e anunciava um reset que não acontecia; o banco seguia cheio.
+
+O `--fresh` leva junto a lista de 206.769 part numbers e a regra de serial.
+Para apagar só os documentos, preservando a lista:
+
+```bash
+PGPASSWORD=invoice psql -h localhost -U invoice -d documentreader \
+    -c "DELETE FROM documents;"
+```
+
 O `check_dedupe.py` **apaga todos os documentos** do banco para o qual apontar,
 porque a duplicata só é testável contra dados controlados. Crie uma base
 separada para ele e nunca rode contra a de desenvolvimento:

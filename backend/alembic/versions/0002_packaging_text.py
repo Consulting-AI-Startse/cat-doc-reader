@@ -8,6 +8,12 @@ Revision ID: 0002
 Revises: 0001
 Create Date: 2026-07-21
 
+
+IRREVERSIVEL NA PRATICA. O downgrade converte a coluna de volta para NUMERIC e
+so funciona em banco vazio: com dado real ele estoura em
+"invalid input syntax for type numeric: 'Caixa de madeira 1200x600x361 mm'".
+Para zerar um ambiente use DROP SCHEMA, nao 'alembic downgrade base' -- foi por
+isso que o --fresh do start-local.sh anunciava um reset que nao acontecia.
 """
 from typing import Sequence, Union
 
