@@ -15,7 +15,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from shared.models import Document, DocumentStatus, Invoice
-from shared.dedupe import find_original, normalise_invoice_number, normalise_supplier
+from shared.dedupe import (find_original, normalise_invoice_number,
+                           normalise_supplier, reresolve_dependents)
 
 URL = os.environ.get("DATABASE_URL")
 if not URL:
@@ -32,9 +33,9 @@ def check(label, got, expected):
         falhas.append(label)
 
 
-def grava(db, nome_doc, numero, fornecedor):
+def grava(db, nome_doc, numero, fornecedor, status=DocumentStatus.extracted):
     """Mesmo caminho do doc_worker: chaves, flush, busca, marca."""
-    doc = Document(status=DocumentStatus.extracted, source_filename=nome_doc)
+    doc = Document(status=status, source_filename=nome_doc)
     db.add(doc)
     inv = Invoice(
         invoice_number=numero,
@@ -137,6 +138,57 @@ with Session(engine) as db:
     check("encontra uma referencia viva", orig is not None, True)
     check("a referencia nao e ele mesmo", orig.id != inv.id if orig else False, True)
     db.rollback()
+
+    print("=== documento REJEITADO nao serve de referencia ===")
+    # Cenario que quebrava: o scan sai ruim, o revisor rejeita e sobe de novo --
+    # e o reenvio corrigido voltava marcado como copia do scan descartado.
+    for inv in db.query(Invoice).all():
+        inv.duplicate_of_id = None
+    db.commit()
+    db.query(Document).delete()
+    db.commit()
+
+    ruim = grava(db, "scan-ruim.pdf", "739 /01", "TECNORD s.r.l.",
+                 status=DocumentStatus.rejected)
+    bom = grava(db, "scan-bom.pdf", "739 /01", "TECNORD s.r.l.")
+    check("reenvio depois de rejeitar nao e duplicata", bom.duplicate_of_id, None)
+
+    print("=== documento com ERRO tambem nao ===")
+    erro = grava(db, "quebrou.pdf", "AB-200", "ROTOTECH S.P.A.",
+                 status=DocumentStatus.error)
+    novo = grava(db, "ok.pdf", "AB-200", "ROTOTECH S.P.A.")
+    check("reenvio depois de erro nao e duplicata", novo.duplicate_of_id, None)
+
+    print("=== rejeitar DEPOIS reavalia quem apontava ===")
+    # A marca e calculada na gravacao, entao ela envelhece: sem reavaliar, a
+    # copia ficaria apontando para um documento que foi descartado.
+    a = grava(db, "a.pdf", "VE 3246", "Dana Graziano S.r.l.")
+    b = grava(db, "b.pdf", "VE3246", "DANA GRAZIANO SRL")
+    check("b nasce como copia de a", b.duplicate_of_id, a.id)
+
+    doc_a = db.get(Document, a.document_id)
+    doc_a.status = DocumentStatus.rejected
+    db.flush()
+    mexidas = reresolve_dependents(db, doc_a.id)
+    db.commit()
+    check("b foi reavaliado", [i.id for i in mexidas], [b.id])
+    check("e deixou de ser duplicata", b.duplicate_of_id, None)
+
+    print("=== mas se sobrar outra copia viva, repointa em vez de limpar ===")
+    x = grava(db, "x.pdf", "ZZ-1", "CATTINI e FIGLIO S.P.A.")
+    y = grava(db, "y.pdf", "ZZ1", "Cattini e Figlio SpA")
+    z = grava(db, "z.pdf", "ZZ 1", "CATTINI E FIGLIO")
+    check("y e z apontam para x", [y.duplicate_of_id, z.duplicate_of_id], [x.id, x.id])
+
+    doc_x = db.get(Document, x.document_id)
+    doc_x.status = DocumentStatus.rejected
+    db.flush()
+    reresolve_dependents(db, doc_x.id)
+    db.commit()
+    # Com x fora, a mais antiga viva vira a referencia: y. E z passa a apontar
+    # para ela, em vez de todo mundo virar "original".
+    check("y vira a original", y.duplicate_of_id, None)
+    check("z passa a apontar para y", z.duplicate_of_id, y.id)
 
 print()
 if falhas:

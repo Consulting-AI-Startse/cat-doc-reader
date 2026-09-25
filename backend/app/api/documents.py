@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.deps import get_db, get_storage
 from app.processing import enqueue_processing
-from shared.dedupe import find_original, normalise_invoice_number, normalise_supplier
+from shared.dedupe import (
+    find_original,
+    normalise_invoice_number,
+    normalise_supplier,
+    reresolve_dependents,
+)
 from shared.models import (
     Document,
     DocumentEvent,
@@ -378,5 +383,23 @@ def reject_document(document_id: uuid.UUID, db: Session = Depends(get_db)):
         raise HTTPException(409, f"status atual ({doc.status.value}) não permite rejeição")
     doc.status = DocumentStatus.rejected
     db.add(DocumentEvent(document_id=doc.id, event_type="rejected", actor="human"))
+    # A marca de duplicata e calculada na gravacao, entao rejeitar este
+    # documento deixaria as copias dele apontando para algo descartado. O flush
+    # antes e o que faz o find_original ja enxergar o status novo.
+    db.flush()
+    mexidas = reresolve_dependents(db, doc.id)
+    if mexidas:
+        db.add(
+            DocumentEvent(
+                document_id=doc.id,
+                event_type="duplicates_reresolved",
+                actor="human",
+                payload={"invoices": [str(i.id) for i in mexidas]},
+            )
+        )
     db.commit()
-    return {"id": str(doc.id), "status": doc.status.value}
+    return {
+        "id": str(doc.id),
+        "status": doc.status.value,
+        "duplicatas_reavaliadas": len(mexidas),
+    }

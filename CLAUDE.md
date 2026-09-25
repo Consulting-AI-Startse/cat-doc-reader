@@ -362,6 +362,13 @@ lugar do Azure OpenAI — está em `docs/modo-local.md`, com a matriz de setting
   **se o filtro derrubar uma linha legítima, a soma para de fechar e o
   documento vai para revisão sozinho.** É o que separa um filtro auditável de
   um filtro cego — tem teste travando isso (`check_structurer.py`, seção 10d).
+- **Rejeitar quer dizer "esta leitura não presta, vou subir de novo".** Não é
+  decisão de negócio sobre a fatura. Por isso documento `rejected` (e `error`)
+  não serve de referência para duplicata: se servisse, o reenvio corrigido
+  voltaria marcado como cópia do scan que acabou de ser descartado. E como a
+  marca é calculada na gravação, rejeitar **depois** exige reavaliar quem
+  apontava para ele — é o que o `reresolve_dependents` faz no endpoint.
+
 - **Nota que o revisor não vê não é explicação.** As notas de `validation`
   moravam só no `raw_extraction` e nos eventos, e a tela de revisão não
   mostrava nenhuma — o documento aparecia em "Revisar" sem dizer por quê. Isso

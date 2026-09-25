@@ -17,7 +17,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import Invoice
+from .models import Document, DocumentStatus, Invoice
 
 # Sufixos de forma juridica. Removidos so do FIM do nome, nunca do meio: 'CO'
 # no meio e palavra ('CO PRODUCTS'), no fim e 'company'.
@@ -32,6 +32,10 @@ _LEGAL_SUFFIXES = {
 }
 
 _NOT_ALNUM = re.compile(r"[^A-Z0-9]+")
+
+# Status que tiram o documento do jogo: nenhum dos dois representa fatura que
+# entrou no sistema de verdade.
+_MORTOS = (DocumentStatus.rejected, DocumentStatus.error)
 
 
 def _fold(text: str) -> str:
@@ -90,6 +94,11 @@ def find_original(
     So entra como original quem nao e copia de ninguem. Sem isso a terceira
     entrada apontaria para a segunda, que aponta para a primeira, e a tela
     teria de subir a corrente para dizer de onde a fatura veio.
+
+    E documento rejeitado ou com erro NAO e referencia. Rejeitar quer dizer
+    "esta leitura nao presta, vou subir de novo" -- se ele continuasse valendo,
+    o reenvio corrigido voltaria marcado como copia do scan ruim que acabou de
+    ser descartado, e o revisor nao teria como desmarcar.
     """
     if not invoice_number_key or not supplier_key:
         return None
@@ -100,6 +109,9 @@ def find_original(
             Invoice.invoice_number_key == invoice_number_key,
             Invoice.supplier_key == supplier_key,
             Invoice.duplicate_of_id.is_(None),
+            Invoice.document_id.in_(
+                select(Document.id).where(Document.status.notin_(_MORTOS))
+            ),
         )
         .order_by(Invoice.created_at.asc(), Invoice.id.asc())
         .limit(1)
@@ -107,3 +119,37 @@ def find_original(
     if exclude_invoice_id is not None:
         stmt = stmt.where(Invoice.id != exclude_invoice_id)
     return db.scalars(stmt).first()
+
+
+def reresolve_dependents(db: Session, document_id) -> list[Invoice]:
+    """Reavalia quem apontava para as invoices deste documento. Devolve as mexidas.
+
+    A marca de duplicata e calculada na GRAVACAO, entao ela envelhece: rejeitar
+    o documento A depois de B ter sido marcado como copia dele deixaria B
+    apontando para um documento descartado. Chamado pelo endpoint de rejeicao,
+    depois de o status ja estar gravado -- e por isso que o find_original aqui
+    ja nao enxerga A.
+
+    Se sobrar outra copia viva com a mesma chave, B passa a apontar para ela;
+    se nao sobrar nenhuma, B deixa de ser duplicata.
+    """
+    orfas = db.scalars(
+        select(Invoice).where(
+            Invoice.duplicate_of_id.in_(
+                select(Invoice.id).where(Invoice.document_id == document_id)
+            )
+        )
+    ).all()
+    mexidas = []
+    for inv in orfas:
+        nova = find_original(
+            db,
+            invoice_number_key=inv.invoice_number_key,
+            supplier_key=inv.supplier_key,
+            exclude_invoice_id=inv.id,
+        )
+        anterior = inv.duplicate_of_id
+        inv.duplicate_of_id = None if nova is None else nova.id
+        if inv.duplicate_of_id != anterior:
+            mexidas.append(inv)
+    return mexidas
