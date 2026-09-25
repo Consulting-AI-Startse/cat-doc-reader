@@ -65,10 +65,11 @@ depois da extracao:  nosso = CAT + 14 linhas de gancho
 depois da leva:      nosso = CAT
 ```
 
-A identidade só vale **depois que a leva `feat/app-cicd-and-appservice-config`
-for aplicada na CAT**; até lá, o arquivo ainda difere e a base de lá não é
-nenhum estado commitado aqui. **Se algum dia voltar a aparecer código de modo
-local dentro deste arquivo, a divergência volta junto.**
+**A divergência foi encerrada em 25/09, com o merge da leva 4.** O blob do
+`doc_worker.py` da CAT foi conferido antes de enviar e batia com `c70c235`, o
+commit da extração; a leva levou o nosso `HEAD` por cima, e agora os dois
+arquivos são idênticos, gancho de modo local incluído. **Se algum dia voltar a
+aparecer código de modo local dentro deste arquivo, a divergência volta junto.**
 
 Três armadilhas de espelhamento, todas capazes de quebrar a produção:
 

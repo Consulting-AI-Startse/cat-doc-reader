@@ -12,7 +12,7 @@ estado do PR.
 
 ---
 
-## 2026-09-25 — leva 4: duplicatas, regra 6 do prompt e catch-up · **PR não aberto**
+## 2026-09-25 — leva 4: duplicatas, regra 6 do prompt e catch-up · **merjado**
 
 15 arquivos, por ZIP em base64, com **script autocontido** no lugar do LEIA-ME
 em prosa (`aplicar-leva4.b64` -> `.txt` -> `Invoke-Expression`). O script traz
@@ -67,6 +67,10 @@ verde até o passo 7 e quebrou no 8:
   PowerShell não só aborta como **engole a mensagem** — da VM só voltou a linha
   `Traceback (most recent call last):`, sem o erro. Agora todo executável passa
   pelo mesmo wrapper e a saída é impressa quando falha.
+
+**Encerra a divergência do `doc_worker.py`.** O blob da CAT batia com
+`c70c235` antes de aplicar; agora os dois lados têm o mesmo arquivo, gancho de
+modo local incluído.
 
 **Atenção no deploy:** traz migração. O job `migrate` do `app-deploy.yml` falha
 de propósito; `alembic upgrade head` é manual, pelo webssh do fastapi.
