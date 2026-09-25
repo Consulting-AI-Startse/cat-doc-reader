@@ -12,6 +12,73 @@ estado do PR.
 
 ---
 
+## 2026-09-25 — leva 4: duplicatas, regra 6 do prompt e catch-up · **PR não aberto**
+
+15 arquivos, por ZIP em base64. Branch sugerida:
+`feat/duplicate-invoices-and-printed-numbers`.
+
+**A conferência de blobs mudou o escopo da leva, e valeu por si.** Pedi os
+blobs da VM antes de montar o pacote, como manda o fluxo. Dos 10 que pedi
+primeiro, 2 divergiram — e a busca dos hashes no nosso histórico mostrou que
+não era trabalho da CAT: os arquivos é que nunca tinham sido espelhados.
+`backend/app/api/documents.py` estava na versão de **27/08**, a do
+`init: first deployable commit`.
+
+Como a suposição "a CAT == nosso último ponto espelhado" tinha acabado de ser
+falsificada, pedi o `git ls-tree -r HEAD` inteiro dos caminhos que espelham.
+Resultado dos 63 arquivos: **48 idênticos, 12 atrasados, 3 novos, 0 exclusivos
+da CAT**. A leva passou de 13 para 15 arquivos.
+
+O `shared/shared/config.py` foi o caso do `doc_worker.py` de novo: o blob de lá
+não existia em commit nenhum daqui porque a versão da CAT é "o nosso HEAD menos
+o bloco de modo local", estado que nunca foi commitado. 24 linhas a mais do
+nosso lado, 1 modificada, **zero linhas exclusivas de lá**.
+
+Brinde: o blob do `doc_worker.py` bate com `c70c235`, ou seja, a extração do
+modo local já chegou lá. Depois desta leva os dois arquivos ficam idênticos e a
+divergência que o `CLAUDE.md` acompanha se encerra.
+
+**O que vai:**
+
+- **Duplicatas por (número + fornecedor).** `supplier` sobe de
+  `invoice_part_number_items` para `invoices`; chave normalizada em
+  `shared/shared/dedupe.py`; só a cópia é marcada, com faixa visual na invoice
+  e link para a original; migração `0004`.
+- **Regra 6 do prompt.** O modelo copia o número como impresso e o `_num()`
+  converte. Medido: o mesmo documento dava `22944.02` em 4 runs e `22.94` em 4.
+  Depois da mudança, 5/5 corretos contra o modelo de verdade.
+- **Catch-up:** `shared/shared/config.py` e `backend/app/processing.py`, sem
+  relação com as duas features — só atraso acumulado.
+
+**Atenção no deploy:** traz migração. O job `migrate` do `app-deploy.yml` falha
+de propósito; `alembic upgrade head` é manual, pelo webssh do fastapi.
+
+| | |
+|---|---|
+| SHA-256 do `.b64` | `96eaf5bbb7ceae479d2ca7fda99b4a8e38363da83d59bfcad73f3da64befbf5a` |
+| SHA-256 do `.zip` | `29f04d892ed0a9cebee38730445cf869ccead2569f4d1cf224d65da037806d58` |
+| bytes do `.b64` / `.zip` | 61734 / 45698 |
+
+| arquivo | base (tem de estar la) | depois (fica assim) |
+|---|---|---|
+| `aiagent-documentreader-infrastructure-azure/workflows/app-ci.yml` | `5fa4d59c6bfd17efbcfba0a0cd5048d624c9d16d` | `67e193ed5711805377d2a61ed8736668c0d7f31e` |
+| `aiagent-documentreader-infrastructure-azure/workflows/app-deploy.yml` | `4b70c9a8f4ff005e6784b1da9e39e334d8ded363` | `995da844d4c71aa5cf48fc5347e3829e2a7a477c` |
+| `backend/alembic/versions/0004_supplier_on_invoice_and_duplicates.py` | `— novo —` | `2f3cbeb55d915d07d0ae26ef1dbc4133a4f815b1` |
+| `backend/app/api/documents.py` | `d955c45f9ca86bd4d3b9b8b4d4ab961ffdc8425c` | `21d2d882ee1f22b8377ded62fe4b0f603231d43e` |
+| `backend/app/processing.py` | `c9f147646a7b8beee9cc9f4f240034c9133d3c59` | `ba7a926cd478d38bb3a970a37fce1afae19aea00` |
+| `check_dedupe.py` | `— novo —` | `d96bf376a54be954f6dd0a241a1c9e1154ae905d` |
+| `check_rules.py` | `8a5323e49d54d5234cd130dc4a4ae39acafdd1ee` | `a38555f6a289086a1af9ccb8d4f30d25cc87ab89` |
+| `check_structurer.py` | `1c98c949e0dbe8244f9c1f0907c5bb38dcf86a60` | `cd7809898c18c665d4f88b185e582327cc8de6e3` |
+| `frontend/src/pages/DocumentDetail.tsx` | `ad1f1bdb1c4b04d20428494adac0e7fbb550578c` | `e6c5434e18abf780145f9322c26e09c7ac04e4ce` |
+| `frontend/src/types/document.ts` | `3b96e3238957c1ebf961ab4ee085de4dae3962eb` | `6ed2264de618a8e475d08912d5d50ef43e87dba0` |
+| `function/doc_worker.py` | `618767fec7293e74f165df1eeaf4513647ec6a14` | `799befdd6d8a5f5877e27de365e1a2b18bcb9cc0` |
+| `function/pipeline/structurer.py` | `efe9af2c22eb1718cb76bb4dcc568875ec754fa4` | `65fcea67e15e71c619644315fccbd6f614406c29` |
+| `shared/shared/config.py` | `9165b0ab7715285dd61d00f16e024750d47ddfeb` | `ec472196cc10cd0dac8f5d5bcfff9cfb15291259` |
+| `shared/shared/dedupe.py` | `— novo —` | `3ef88c95396a5076c51399e0cfff463f822363e5` |
+| `shared/shared/models.py` | `2b376cdf66d4583e6650165d84dbd32f16d8cc4d` | `531a1f7e08562e558ec5aaa30fadb6486c7a6760` |
+
+---
+
 ## 2026-09-22 — leva 3: autenticação do deploy · **merjado**
 
 Um arquivo, `app-deploy.yml`, que vai para **dois lugares**: o diretório de
