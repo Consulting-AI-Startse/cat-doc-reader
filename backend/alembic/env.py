@@ -32,6 +32,18 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    # NAO injete o token do Entra aqui, por mais que pareca faltar.
+    #
+    # O shared/db.py tem um listener 'do_connect' que poe o token da Managed
+    # Identity como senha. Copiar isso para ca parece consertar a assimetria e
+    # QUEBRA a migracao na CAT: a MI tem so SELECT/INSERT/UPDATE/DELETE (secao
+    # 2.4 do DEPLOY.md), entao 'ALTER TABLE' devolve
+    # 'must be owner of table invoices'. Dono das tabelas e o grupo admin do
+    # Entra, que foi quem rodou o db-setup-v2.sql.
+    #
+    # A ausencia e o que faz a migracao ser possivel: sem listener, o libpq
+    # usa o PGPASSWORD do ambiente, e e por ali que entra o token do
+    # administrador. Medido em 25/09 aplicando a 0004 em producao.
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

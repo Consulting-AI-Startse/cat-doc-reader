@@ -391,6 +391,27 @@ longos, e isso nos fez diagnosticar um `FUNCTION_URL` truncado como ausente. O
 mesmo vale para migração: confira `information_schema.columns`, não o
 `alembic current` — uma migração pode estar carimbada sem estar aplicada.
 
+**Nome de recurso da CAT se descobre, nao se deriva.** O resource group real e
+`aicoe_aiagent_documentreader_pov`, nao o `<projeto>-<ambiente>` que os
+workflows usam como rede de seguranca — o valor de verdade vem de
+`.github/variables/*.env`, que nao existe deste lado. Derivar custou duas
+rodadas, e o sintoma nao ajuda: `az` com o RG errado nao acha o servidor, e a
+falha se parece com "nao consegui descobrir o admin". Descubra com
+`az postgres flexible-server list --query "[].{n:name,g:resourceGroup}" -o tsv`
+e afins, ou peca. O mesmo vale para nome de subcomando do `az`: `ad-admin`
+virou `microsoft-entra-admin`, e `execute` precisa da extensao
+`rdbms-connect`, ausente na VM.
+
+**O webssh trunca a entrada em 4095 caracteres.** Um token do Entra tem ~4500,
+entao colar de uma vez corta a assinatura do JWT e o servidor responde
+`The access token has invalid format`. Vai em duas metades. Confira contando as
+partes: `printf '%s' "$T" | awk -F. '{print NF}'` tem de dar **3**.
+
+**Migracao de schema nao roda como a Managed Identity.** Ver a secao propria no
+`DEPLOY.md`. A MI tem so DML por desenho; quem e dono das tabelas e o grupo
+admin do Entra. E a VM nao alcanca o Postgres (fora da allow-list), entao o
+unico caminho e o webssh com token de administrador.
+
 **Um run de infraestrutura pode apagar as app settings.** O `functions.json`
 monta `siteConfig.appSettings` como um `concat(...)` fechado, então reprovisionar
 zera o que foi configurado por fora. Depois de qualquer run de infra, reconfira

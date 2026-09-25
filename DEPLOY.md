@@ -245,6 +245,66 @@ az webapp restart -g $RG -n $APP
 | Backend FastAPI | `az webapp deploy` (zip) + Oryx | schema v2 aplicado; MI no Postgres (self-serve); Blob na MI (plataforma); `FUNCTION_URL/KEY` |
 | Function App | `func publish` ou `az ...config-zip` | MI no Postgres; Blob na MI; App Settings |
 
+## Migração de schema: roda como administrador, no webssh
+
+Aplicado assim em 25/09, com a `0004`. Os três caminhos mais óbvios não
+funcionam, e cada um falha com uma mensagem que não diz o porquê:
+
+| caminho | o que acontece |
+|---|---|
+| `alembic upgrade head` no webssh | `must be owner of table invoices` — a MI só tem DML |
+| conectar da VM | `connection timeout` — o IP da VM não está na allow-list do firewall |
+| `az postgres flexible-server execute` | `'execute' is misspelled` — falta a extensão `rdbms-connect` |
+
+A rede passa do **container**; o privilégio é do **administrador**. A saída é
+juntar os dois: rodar no webssh, autenticando com o token do admin.
+
+**Na VM**, o token sai em duas metades porque o webssh trunca a entrada em
+**4095 caracteres** e o token tem ~4500:
+
+```powershell
+$t = (az account get-access-token --resource https://ossrdbms-aad.database.windows.net --query accessToken -o tsv).Trim()
+$h = [math]::Ceiling($t.Length/2)
+$p1 = $t.Substring(0,$h); $p2 = $t.Substring($h)
+"total: $($t.Length)  p1: $($p1.Length)  p2: $($p2.Length)"
+Set-Clipboard -Value $p1
+# depois de colar a primeira metade no webssh:
+Set-Clipboard -Value $p2
+```
+
+O nome do grupo admin sai daqui (o subcomando antigo era `ad-admin`):
+
+```powershell
+az postgres flexible-server microsoft-entra-admin list -g <rg> -s <servidor> --query "[0].principalName" -o tsv
+```
+
+**No webssh do fastapi**, no diretório que tem o `alembic.ini`:
+
+```bash
+export DATABASE_URL="postgresql+psycopg://<grupo-admin>@<servidor>.postgres.database.azure.com:5432/documentreader?sslmode=require"
+read -rs P1      # cola a 1a metade
+read -rs P2      # cola a 2a metade
+PGPASSWORD=$(printf '%s%s' "$P1" "$P2" | tr -d '\r\n '); export PGPASSWORD; unset P1 P2
+echo "${#PGPASSWORD} $(printf '%s' "$PGPASSWORD" | awk -F. '{print NF}')"   # 4515 e 3
+alembic current        # tem de imprimir a revisao ANTERIOR, sem erro
+alembic upgrade head
+```
+
+O `read -rs` não ecoa e não deixa o token no histórico. O `tr -d` tira o `\r`
+que o clipboard do Windows cola junto — com ele o servidor responde
+`The access token has invalid format`, que não diz nada sobre isso. O
+`awk -F.` conta as partes do JWT: **3** significa inteiro, **2** significa que a
+colagem foi truncada.
+
+Confira por `information_schema`, nunca por `alembic current`, e reinicie o
+fastapi e a function depois — eles carregaram o modelo antigo na memória.
+
+**O `alembic/env.py` não injeta token de propósito.** É o que deixa o
+`PGPASSWORD` valer. Se alguém "corrigir" isso copiando o listener do
+`shared/db.py`, a migração volta a conectar como a MI e a falhar.
+
+---
+
 ## Troubleshooting rápido
 
 - **Logs backend:** `az webapp log tail -g $RG -n $APP`
@@ -252,6 +312,15 @@ az webapp restart -g $RG -n $APP
 - **PyPI bloqueado:** App Setting `PIP_INDEX_URL` apontando para o Artifactory/JFrog.
 - **Erro de auth no Postgres:** regenere o `$token` (validade ~1h) e confira o portal
   Check Point aberto; confirme que a MI virou principal (seção 2.4 / 3.3).
+- **`must be owner of table ...`:** você conectou como a Managed Identity. Ela
+  tem só DML (seção 2.4) e nunca poderá fazer DDL. Migração roda como
+  administrador — ver a seção abaixo.
+- **`The access token has invalid format`:** o token veio com o `\r` que o
+  clipboard do Windows cola junto. Limpe com `tr -d '\r\n '`.
+- **`'ad-admin' is misspelled`:** o subcomando virou
+  `az postgres flexible-server microsoft-entra-admin`.
+- **`'execute' is misspelled`:** `az postgres flexible-server execute` precisa da
+  extensão `rdbms-connect`, que não está instalada na VM.
 - **`az webapp deploy` sem permissão:** confirme os direitos Web; você já tem
   `az webapp ssh`, deploy costuma vir junto. Se faltar, é pedido à plataforma.
 

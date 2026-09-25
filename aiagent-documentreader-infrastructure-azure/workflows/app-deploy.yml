@@ -124,19 +124,61 @@ jobs:
             echo "Este push traz arquivo novo em \`backend/alembic/versions/\`."
             echo "O backend ja foi publicado; **o schema ainda nao foi migrado**."
             echo
-            echo "Rode pelo webssh do fastapi:"
+            echo "Roda pelo **webssh do fastapi**, autenticando como **administrador**"
+            echo "do Entra -- nao como a Managed Identity da aplicacao."
+            echo
+            echo "Por que nao da para simplificar (medido em 25/09):"
+            echo
+            echo "- A MI so tem SELECT/INSERT/UPDATE/DELETE (secao 2.4 do DEPLOY.md),"
+            echo "  entao \`alembic upgrade head\` puro devolve"
+            echo "  \`must be owner of table invoices\`. DDL exige ser dono, e dono"
+            echo "  e o grupo admin do Entra."
+            echo "- Da VM o Postgres nao responde: o IP dela nao esta na allow-list"
+            echo "  do firewall. Do container responde. Entao a migracao roda no"
+            echo "  container, com o token do admin."
+            echo "- O webssh trunca a entrada em **4095 caracteres** e o token tem"
+            echo "  ~4500, entao ele vai em duas metades."
+            echo
+            echo "**Na VM (PowerShell):**"
             echo
             echo '```'
-            echo "alembic upgrade head --sql   # confere o que vai sair"
-            echo "alembic upgrade head"
-            echo "alembic check                # compara models x schema real"
+            echo '$t = (az account get-access-token --resource https://ossrdbms-aad.database.windows.net --query accessToken -o tsv).Trim()'
+            echo '$h = [math]::Ceiling($t.Length/2)'
+            echo '$p1 = $t.Substring(0,$h); $p2 = $t.Substring($h)'
+            echo 'Set-Clipboard -Value $p1      # depois de colar a 1a metade: Set-Clipboard -Value $p2'
+            echo '```'
+            echo
+            echo "**No webssh, no diretorio que tem o alembic.ini:**"
+            echo
+            echo '```'
+            echo 'export DATABASE_URL="postgresql+psycopg://<grupo-admin>@<servidor>.postgres.database.azure.com:5432/documentreader?sslmode=require"'
+            echo 'read -rs P1      # cola a 1a metade'
+            echo 'read -rs P2      # cola a 2a metade'
+            echo 'PGPASSWORD=$(printf "%s%s" "$P1" "$P2" | tr -d "\\r\\n "); export PGPASSWORD; unset P1 P2'
+            echo 'echo "${#PGPASSWORD} $(printf "%s" "$PGPASSWORD" | awk -F. "{print NF}")"   # 4515 e 3'
+            echo 'alembic current       # tem de imprimir a revisao ANTERIOR, sem erro'
+            echo 'alembic upgrade head'
+            echo '```'
+            echo
+            echo "O \`read -rs\` evita deixar o token no historico. O \`tr -d\` tira o"
+            echo "CR que o clipboard do Windows cola junto -- com ele o servidor"
+            echo "responde \`The access token has invalid format\`."
+            echo
+            echo "**Conferencia, por information_schema:**"
+            echo
+            echo '```'
+            echo "SELECT column_name FROM information_schema.columns"
+            echo " WHERE table_name = 'invoices';"
             echo '```'
             echo
             echo "\`alembic current\` nao serve de conferencia: le o carimbo, e"
             echo "migracao pode estar carimbada sem estar aplicada."
+            echo
+            echo "Depois, reinicie o fastapi e a function: eles carregaram o modelo"
+            echo "antigo na memoria."
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "::error::migracao pendente -- rode alembic upgrade head pelo webssh do fastapi"
+          echo "::error::migracao pendente -- veja o resumo deste job; roda no webssh COMO ADMIN, nao como a Managed Identity"
           exit 1
 
   # ==========================================================================
