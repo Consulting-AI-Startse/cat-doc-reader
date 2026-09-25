@@ -349,6 +349,25 @@ lugar do Azure OpenAI — está em `docs/modo-local.md`, com a matriz de setting
   o documento vai para `needs_review`. Um filtro que apagava linha sem sete
   dígitos destruía os itens de dois dos quatro documentos de teste, porque
   `674-8657` é part number legítimo.
+
+  **A exceção, decidida em 25/09: linha que não é código sai de `line_items`.**
+  Só `not_a_code` e `missing` — nunca `other_code`, que é código de fornecedor
+  (`15.1301.466`) e é item real, e nunca "não está na lista de PN liberados",
+  que apagaria as faturas de fornecedor inteiras. E não é descarte de verdade:
+  a linha vai para `discarded_lines` com o motivo, e aparece na tela.
+
+  O filtro roda **antes da conferência aritmética**, de propósito. Na fatura de
+  motor 93872204 a nota `END USE` vinha como item com o preço do motor e
+  estourava o total; sem ela a soma fecha. E a recíproca é a rede de segurança:
+  **se o filtro derrubar uma linha legítima, a soma para de fechar e o
+  documento vai para revisão sozinho.** É o que separa um filtro auditável de
+  um filtro cego — tem teste travando isso (`check_structurer.py`, seção 10d).
+- **Nota que o revisor não vê não é explicação.** As notas de `validation`
+  moravam só no `raw_extraction` e nos eventos, e a tela de revisão não
+  mostrava nenhuma — o documento aparecia em "Revisar" sem dizer por quê. Isso
+  passou a ser defeito quando o filtro começou a remover linhas: `validation` e
+  `discarded_lines` agora saem no payload do documento e têm painel próprio.
+
 - **Documento gravado sem explicação é bug.** Ou estoura, ou deixa nota. Já
   tivemos documento salvo vazio e tela em branco para o revisor, sem uma pista.
 

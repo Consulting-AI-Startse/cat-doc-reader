@@ -266,6 +266,50 @@ export function DocumentDetail() {
               <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{data.error_message}</div>
             )}
 
+            {/* Ate aqui as notas so existiam no /raw e nos eventos: o revisor
+                via o documento em "Revisar" sem nenhuma pista do motivo. Com o
+                filtro de linhas sem part number isso virou defeito -- linha
+                sumindo da tabela sem explicacao. */}
+            {(data.validation.length > 0 || data.discarded_lines.length > 0) && (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+                <p className="text-sm font-medium text-amber-900">
+                  O que a extração marcou neste documento
+                </p>
+
+                {data.discarded_lines.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs font-medium text-amber-900">
+                      {data.discarded_lines.length} linha(s) removida(s) por não ter part number:
+                    </p>
+                    <table className="mt-1.5 w-full text-left text-xs">
+                      <tbody className="divide-y divide-amber-200/70">
+                        {data.discarded_lines.map((l, k) => (
+                          <tr key={k}>
+                            <td className="py-1 pr-3 font-mono text-amber-900">
+                              {l.part_number || EMPTY}
+                            </td>
+                            <td className="py-1 pr-3 text-amber-800">{l.description || EMPTY}</td>
+                            <td className="py-1 pr-3 text-right tabular text-amber-800">
+                              {l.amount || EMPTY}
+                            </td>
+                            <td className="py-1 text-amber-700">{l.reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {data.validation.length > 0 && (
+                  <ul className="mt-3 space-y-0.5 text-xs text-amber-800">
+                    {data.validation.map((v, k) => (
+                      <li key={k}>• {v}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
             <div className="mt-5 space-y-5">
               {form.map((inv, i) => (
                 <div

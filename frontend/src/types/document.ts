@@ -45,6 +45,16 @@ export interface Invoice {
   line_items: LineItem[];
 }
 
+/** Linha que o filtro tirou de line_items por não ter part number. Não some:
+ *  fica aqui com o motivo, para o revisor poder discordar. */
+export interface DiscardedLine {
+  invoice_number: string | null;
+  part_number: string | null;
+  description: string | null;
+  amount: string | null;
+  reason: string | null;
+}
+
 export interface DocumentEvent {
   event_type: string;
   actor: string | null;
@@ -61,6 +71,9 @@ export interface DocumentDetail {
   extraction_confidence: number | null;
   error_message: string | null;
   created_at: string;
+  /** Por que o documento caiu em needs_review. Antes só existia no /raw. */
+  validation: string[];
+  discarded_lines: DiscardedLine[];
   invoices: Invoice[];
   events: DocumentEvent[];
 }

@@ -48,8 +48,9 @@ payload["invoices"][0]["packaging_cost"] = "603,00"
 
 # Linhas sinteticas na ULTIMA invoice, para nao contaminar a invoice[0],
 # que e a do rateio: quantidade extra ali mudaria o valor por unidade.
-#  - 'I/C Material' e prosa: o filtro antigo descartava a linha.
-#  - '5P-1465' e part number CAT de 2+4: o filtro antigo tambem a apagava.
+#  - 'I/C Material' e prosa: nao e item, e sai de line_items (mas e preservada).
+#  - '5P-1465' e part number CAT de 2+4: e item, e TEM de sobreviver -- era o
+#    que o filtro velho, por sete digitos, apagava.
 payload["invoices"][-1]["line_items"].extend([
     {"part_number": "I/C Material", "quantity": "1", "unit_price": "1.00", "amount": "1.00"},
     {"part_number": "5P-1465", "quantity": "2", "unit_price": "10.00", "amount": "20.00"},
@@ -57,17 +58,29 @@ payload["invoices"][-1]["line_items"].extend([
 
 out = _normalise(payload, 0.9, [], None, content)
 lines = [l for i in out["invoices"] for l in i["line_items"]]
+descartadas = [d for i in out["invoices"] for d in i["discarded_lines"]]
 
-print("=== 1. nenhuma linha descartada ===")
-check("total de linhas na saida", len(lines), 10)
-check("linha 'I/C Material' sobreviveu",
-      any(l["part_number"] == "I/C Material" for l in lines), True)
+# INVERSAO DELIBERADA (25/09). Ate aqui a regra era "nenhuma linha descartada",
+# e este teste travava isso. O cliente pediu para ignorar item sem part number,
+# e o criterio passou a ser a CLASSIFICACAO, nao um regex de sete digitos --
+# que era o que apagava part number legitimo. O que nao e codigo sai de
+# line_items, mas continua em discarded_lines com o motivo.
+print("=== 1. so o que nao e codigo sai, e nada se perde ===")
+check("itens na saida", len(lines), 9)
+check("linha 'I/C Material' saiu de line_items",
+      any(l["part_number"] == "I/C Material" for l in lines), False)
+check("mas esta preservada em discarded_lines",
+      any(d["part_number"] == "I/C Material" for d in descartadas), True)
+# Este continua sendo o teste que importa: part number legitimo de 2+4 nunca
+# pode ser descartado. E o caso que derrubou dois dos quatro documentos.
 check("linha '5P-1465' sobreviveu",
       any(l["part_number"] == "5P-1465" for l in lines), True)
 
 print("=== 2. status por part number ===")
 by_pn = {l["part_number"]: l for l in lines}
-check("status de 'I/C Material'", by_pn["I/C Material"]["part_number_status"], "not_a_code")
+check("status de 'I/C Material' no descarte",
+      next(d for d in descartadas if d["part_number"] == "I/C Material")["part_number_status"],
+      "not_a_code")
 # 'not_printed' e o certo aqui: o formato e valido mas 5P-1465 nao esta
 # neste documento. O que importa e nao ser 'not_a_code' nem 'other_code'.
 check("status de '5P-1465'", by_pn["5P-1465"]["part_number_status"], "not_printed")
@@ -226,6 +239,56 @@ print("=== 9f. a pre-varredura acha o part number no texto cru ===")
 check("acha o motor", "6522586" in candidate_part_numbers("QTY 7 6522586 CAPTIVE"),  True)
 check("aceita a forma com hifen", "463-8344" in candidate_part_numbers("item 463-8344 x2"), True)
 check("descarta prosa", candidate_part_numbers("nenhum codigo aqui"), [])
+
+print("=== 10. gate: linha sem part number sai de line_items, mas nao some ===")
+# A nota 'END USE' da fatura 93872204 vinha como item, com o preco do motor, e
+# estourava o total. Removida ANTES da soma, o total fecha com o impresso.
+com_lixo = {"invoices": [{"invoice_number": "AE28 519364", "total": "124894.80",
+    "packaging_cost": "608.82", "line_items": [
+        {"part_number": "6522586", "quantity": "7", "unit_price": "17755.14",
+         "amount": "124285.98"},
+        {"part_number": "I/C Material 0V3456", "description": "END USE: CAPTIVE ENGINE",
+         "quantity": "1", "unit_price": "17755.14", "amount": "17755.14"}]}],
+    "confidence": 0.95}
+r = _normalise(com_lixo, 0.95, content="6522586")
+inv = r["invoices"][0]
+check("so o item real fica", [l["part_number"] for l in inv["line_items"]], ["6522586"])
+check("a linha descartada e preservada", len(inv["discarded_lines"]), 1)
+check("com o motivo junto",
+      "nao tem forma de codigo" in (inv["discarded_lines"][0]["discard_reason"] or ""), True)
+check("e o descarte e anunciado",
+      any("sem part number descartada" in v for v in r["validation"]), True)
+# O ganho do descarte ANTES da soma: sem a linha fantasma, a aritmetica fecha.
+check("a soma passa a fechar com o impresso",
+      any("nao fecha" in v for v in r["validation"]), False)
+
+print("=== 10b. campo vazio tambem sai ===")
+vazio = {"invoices": [{"invoice_number": "X", "total": "10.00", "line_items": [
+    {"part_number": "463-8344", "quantity": "1", "unit_price": "10.00", "amount": "10.00"},
+    {"part_number": "", "description": "linha em branco"}]}], "confidence": 0.95}
+r = _normalise(vazio, 0.95, content="463-8344")
+check("uma linha fica", len(r["invoices"][0]["line_items"]), 1)
+check("uma sai", len(r["invoices"][0]["discarded_lines"]), 1)
+
+print("=== 10c. codigo de fornecedor NAO e descartado ===")
+# '15.1301.466' e codigo de fornecedor italiano: nunca estara na PN Liberados
+# e e item real. Derrubar por "nao esta na lista" apagaria metade do corpus.
+fornecedor = {"invoices": [{"invoice_number": "739 /01", "total": "20.00", "line_items": [
+    {"part_number": "15.1301.466", "quantity": "1", "unit_price": "20.00", "amount": "20.00"}]}],
+    "confidence": 0.95}
+r = _normalise(fornecedor, 0.95, content="15.1301.466")
+check("other_code sobrevive", len(r["invoices"][0]["line_items"]), 1)
+check("e nao foi descartado", len(r["invoices"][0]["discarded_lines"]), 0)
+
+print("=== 10d. o cao de guarda: descarte errado quebra a soma ===")
+# Se o filtro derrubar uma linha legitima, a soma para de fechar e o documento
+# vai para revisao sozinho. E o que torna o filtro auditavel em vez de cego.
+frete = {"invoices": [{"invoice_number": "X", "total": "110.00", "line_items": [
+    {"part_number": "463-8344", "quantity": "1", "unit_price": "100.00", "amount": "100.00"},
+    {"part_number": None, "description": "FRETE", "amount": "10.00"}]}], "confidence": 0.95}
+r = _normalise(frete, 0.95, content="463-8344")
+check("a linha sem codigo saiu", len(r["invoices"][0]["discarded_lines"]), 1)
+check("e a aritmetica acusa", any("nao fecha" in v for v in r["validation"]), True)
 
 print()
 if falhas:

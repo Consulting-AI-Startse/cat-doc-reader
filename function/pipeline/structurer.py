@@ -515,13 +515,28 @@ def _expand_serials(tag: str, li: dict, exige_serial: bool):
     return registros, avisos
 
 
-def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None):
-    """Confere PN e aritmetica. Marca o que esta errado e mantem TODA linha.
+# Status que NAO sao item de fatura. Derrubar por "nao esta na lista de PN
+# liberados" seria errado: 'other_code' existe porque o corpus tem codigo de
+# fornecedor ('15.1301.466'), que nunca estara na PN Liberados e e item real.
+_NAO_E_ITEM = ("not_a_code", "missing")
 
-    Descartar linha destruia dados: '674-8657' e part number legitimo e nao
-    casa com sete digitos puros. Quem revisa precisa ver a linha e o aviso.
+
+def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None):
+    """Confere PN e aritmetica, separando o que nao e item de fatura.
+
+    A linha descartada NAO some: sai de line_items e vai para discarded_lines,
+    com o motivo. Um filtro que apagava linha sem sete digitos ja destruiu os
+    itens de dois dos quatro documentos de teste, porque '674-8657' e part
+    number legitimo -- entao aqui o criterio e a classificacao, e o dado fica.
+
+    O descarte acontece ANTES da soma, de proposito. Na fatura de motor
+    93872204 a nota 'I/C Material 0V3456 / END USE' vinha como item com o preco
+    do motor e estourava o total; sem ela a soma fecha com o impresso. E a
+    reciproca e a rede de seguranca do filtro: se ele derrubar uma linha
+    legitima, a soma para de fechar e o documento vai para revisao sozinho.
     """
     kept = []
+    descartadas = []
     issues = []
     running = 0.0
     exigem_serial = exigem_serial or set()
@@ -537,6 +552,9 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None):
             part_number_suffix=suffix,
             part_number_status=status,
         )
+        if status in _NAO_E_ITEM:
+            descartadas.append(dict(li, discard_reason=note or "sem part number"))
+            continue
         if note:
             issues.append("%s.line[%d]: %s" % (tag, n, note))
 
@@ -566,7 +584,14 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None):
         issues.extend(avisos)
         kept.extend(registros)
 
-    return kept, issues, running
+    if descartadas:
+        issues.append(
+            "%s: %d linha(s) sem part number descartada(s): %s"
+            % (tag, len(descartadas),
+               "; ".join(str(d.get("part_number") or "(vazio)") for d in descartadas))
+        )
+
+    return kept, issues, running, descartadas
 
 
 def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
@@ -619,7 +644,8 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
         tag = "invoice[%d]" % index
 
         raw_lines = [li for li in (inv.get("line_items") or []) if isinstance(li, dict)]
-        kept, line_issues, running = _check_lines(tag, raw_lines, content, exigem_serial)
+        kept, line_issues, running, descartadas = _check_lines(
+            tag, raw_lines, content, exigem_serial)
         issues.extend(line_issues)
 
         number = inv.get("invoice_number")
@@ -707,6 +733,9 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
             "packaging_cost": _snum(inv.get("packaging_cost")),
             "total": total,
             "line_items": line_items,
+            # Nao sao itens, mas tambem nao somem: quem revisa precisa poder
+            # ver o que o filtro tirou, e por que.
+            "discarded_lines": descartadas,
         })
 
     candidates = []

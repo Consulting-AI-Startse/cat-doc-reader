@@ -87,7 +87,35 @@ def _serialize_invoice(inv: Invoice) -> dict:
     }
 
 
+def _extract_notes(doc: Document) -> tuple[list[str], list[dict]]:
+    """Notas de validacao e linhas descartadas, tiradas do raw_extraction.
+
+    Nao ficam em tabela propria: sao saida do structurer, gravadas junto com a
+    extracao. Mas precisam CHEGAR a tela -- ate aqui elas so existiam no
+    /raw e nos eventos, e o revisor nunca via por que o documento caiu em
+    needs_review. Com o filtro de linhas sem part number isso deixou de ser
+    incomodo e passou a ser defeito: linha sumindo da tabela sem explicacao.
+    """
+    bruto = doc.raw_extraction or {}
+    estruturado = bruto.get("structured") or {}
+    notas = [str(v) for v in (estruturado.get("validation") or [])]
+    descartadas = []
+    for inv in estruturado.get("invoices") or []:
+        if not isinstance(inv, dict):
+            continue
+        for linha in inv.get("discarded_lines") or []:
+            descartadas.append({
+                "invoice_number": inv.get("invoice_number"),
+                "part_number": linha.get("part_number"),
+                "description": linha.get("description"),
+                "amount": linha.get("amount"),
+                "reason": linha.get("discard_reason"),
+            })
+    return notas, descartadas
+
+
 def _serialize_document(doc: Document) -> dict:
+    notas, descartadas = _extract_notes(doc)
     return {
         "id": str(doc.id),
         "status": doc.status.value,
@@ -97,6 +125,8 @@ def _serialize_document(doc: Document) -> dict:
         "extraction_confidence": doc.extraction_confidence,
         "error_message": doc.error_message,
         "created_at": doc.created_at,
+        "validation": notas,
+        "discarded_lines": descartadas,
         "invoices": [_serialize_invoice(i) for i in doc.invoices],
         "events": [
             {
