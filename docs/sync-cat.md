@@ -12,7 +12,7 @@ estado do PR.
 
 ---
 
-## 2026-09-25 — leva 5: a instrução de migração estava errada · **PR não aberto**
+## 2026-09-25 — leva 5: a instrução de migração estava errada · **merjado**
 
 3 arquivos, por ZIP em base64 + script autocontido. Branch sugerida:
 `docs/migration-runs-as-admin`.
@@ -121,8 +121,9 @@ verde até o passo 7 e quebrou no 8:
 `c70c235` antes de aplicar; agora os dois lados têm o mesmo arquivo, gancho de
 modo local incluído.
 
-**Atenção no deploy:** traz migração. O job `migrate` do `app-deploy.yml` falha
-de propósito; `alembic upgrade head` é manual, pelo webssh do fastapi.
+**Atenção no deploy:** traz migração. **Aplicada em produção em 25/09**, como
+administrador do Entra pelo webssh — ver a leva 5, que documenta o procedimento
+depois de as instruções antigas falharem cinco vezes.
 
 | | |
 |---|---|
