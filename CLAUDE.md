@@ -156,10 +156,49 @@ Para cada leva de mudancas que precisa ir para a VM, produza **quatro coisas**:
    de cada arquivo da leva, em duas colunas** -- base e depois -- para conferir
    o repo. SHA-256 de arquivo nao serve para isso: o CRLF do checkout do
    Windows garante que nunca bata (ver a secao acima).
-3. **Os comandos de Windows/PowerShell** para aplicar, conferir e testar --
-   prontos para colar, rodando **a partir de `Downloads`** (nada de transporte
-   entra no repo, ver abaixo) e sem depender de `python` no PATH (na VM nao
-   esta; usar `.\function\.venv\Scripts\python.exe`).
+3. **Um script autocontido que aplica, confere e testa sozinho** -- nao um
+   LEIA-ME com comandos para colar e saidas para conferir a olho. Ele roda a
+   partir de `Downloads` (nada de transporte entra no repo, ver abaixo) e nao
+   depende de `python` no PATH (na VM nao esta; usar
+   `.\function\.venv\Scripts\python.exe`).
+
+   **Autocontido quer dizer:** todo valor esperado -- SHA-256, tamanho, blob
+   base, blob depois -- esta embutido no proprio script, que compara a saida de
+   cada passo e **para na primeira divergencia**. Nada de "confira se bate com
+   a tabela": se sobrou conferencia para o operador, o script esta incompleto.
+
+   Formato: o script viaja em **base64**, com extensao `.b64` -- e um dos
+   poucos tipos que passam no e-mail da CAT. Do lado de la o `certutil -decode`
+   devolve um `.txt`, que roda por um comando. **Nao mandar `.ps1`**, que nao
+   passa. E o `.txt` decodificado tem de ser executavel de ponta a ponta:
+   qualquer prosa vai em comentario `#`, porque texto solto quebra a execucao.
+
+   Rodar um `.txt` exige `Invoke-Expression`; o `-File` e o dot-source do
+   PowerShell so aceitam `.ps1`:
+
+   ```powershell
+   cd $env:USERPROFILE\Downloads
+   certutil -decode .\aplicar-<leva>.b64 .\aplicar-<leva>.txt
+   powershell -ExecutionPolicy Bypass -Command "Invoke-Expression (Get-Content -Raw .\aplicar-<leva>.txt)"
+   ```
+
+   Tres armadilhas medidas ao escrever o primeiro deles:
+
+   - **So ASCII.** O PowerShell 5.1 le arquivo sem BOM como ANSI, entao acento
+     vira lixo. O `certutil -decode` nao poe BOM.
+   - **`$ErrorActionPreference = 'Stop'` mata o script no lugar errado.** O
+     `git` escreve em stderr em situacao normal (`rev-parse` de caminho que
+     ainda nao existe no HEAD), e o PowerShell promove isso a erro terminante
+     -- `2>$null` nao segura. Chame o `git` por um wrapper que afrouxa a
+     preferencia e decide pelo codigo de saida.
+   - **A mensagem de erro tem de dizer se a arvore foi escrita.** Uma flag que
+     vira `true` antes do `Expand-Archive` e a diferenca entre "o repo nao foi
+     tocado" e "pode estar pela metade, desfaca assim".
+
+   **Teste o script antes de mandar.** Reconstrua a arvore da CAT a partir dos
+   blobs que ela reportou (`git cat-file -p <blob>` monta cada arquivo), rode o
+   script contra esse repo de teste e confira os tres caminhos: aplica limpo,
+   detecta leva ja aplicada, e para sem escrever quando um arquivo diverge.
 4. **Nome de branch e descricao de PR sugeridos**, prontos para o Luis usar.
    Branch no padrao `fix/...` ou `feat/...`, descricao dizendo o que muda, por
    que, e como conferir.

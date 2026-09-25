@@ -14,7 +14,12 @@ estado do PR.
 
 ## 2026-09-25 — leva 4: duplicatas, regra 6 do prompt e catch-up · **PR não aberto**
 
-15 arquivos, por ZIP em base64. Branch sugerida:
+15 arquivos, por ZIP em base64, com **script autocontido** no lugar do LEIA-ME
+em prosa (`aplicar-leva4.b64` -> `.txt` -> `Invoke-Expression`). O script traz
+todos os valores esperados embutidos e para na primeira divergencia; nao sobra
+conferencia para o operador. Testado contra uma reconstrucao da arvore da CAT:
+aplica limpo, detecta leva ja aplicada e para **sem escrever** quando um
+arquivo diverge. Branch sugerida:
 `feat/duplicate-invoices-and-printed-numbers`.
 
 **A conferência de blobs mudou o escopo da leva, e valeu por si.** Pedi os
