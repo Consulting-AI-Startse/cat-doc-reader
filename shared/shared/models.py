@@ -7,6 +7,9 @@ from decimal import Decimal
 
 import sqlalchemy as sa
 from sqlalchemy import (
+    ARRAY,
+    Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
@@ -170,3 +173,70 @@ class DocumentEvent(Base):
     )
 
     document: Mapped[Document] = relationship(back_populates="events")
+
+
+class ReleasedPartNumber(Base):
+    """A lista de part numbers liberados, importada por CSV.
+
+    Decisao do cliente: a lista e a fonte da verdade. O que nao esta nela nao e
+    part number -- o que rebaixa o PART_NUMBER_RE a pre-filtro barato.
+
+    206.769 linhas, 18 MB com indices. A consulta e uma por documento
+    (`part_number = ANY(...)`, ~50 valores, 0,43 ms medido), nunca uma por
+    linha, e jamais carregar a tabela na memoria da function.
+    """
+
+    __tablename__ = "released_part_numbers"
+
+    # Normalizado: maiusculo e sem hifen. O documento imprime '463-8344' e
+    # '6637238' para a mesma familia, entao a chave tem de ser uma so.
+    part_number: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str | None] = mapped_column(Text)
+
+    # Derivado das regras em SerialRules, nao importado. Materializado porque
+    # recalcular custa 0,81 s uma vez, e consultar custa 0,4 ms sempre.
+    requires_serial: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=sa.text("false")
+    )
+
+    imported_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # Arquivo + data. Sem isto nao da para saber de qual planilha veio a linha.
+    import_batch: Mapped[str | None] = mapped_column(String(128))
+
+
+class SerialRules(Base):
+    """Quais part numbers exigem serial. Linha unica, editada pela tela.
+
+    Mora no banco e nao no codigo porque a regra muda sem deploy: a CAT ainda
+    deve a lista dos "outros" que o SUBIR_FATURA_GA.xlsx manda mapear alem de
+    motor.
+
+    Duas formas de marcar, porque uma so nao cobre:
+
+    - `substrings` casa contra o NOME da peca. 'ENGINE AR' pega 588 pecas com
+      zero falso positivo -- e 'ENGINE' sozinho pegaria 910, quase todas
+      acessorio ('SUPPORT-ENGINE', 'FILM-ENGINE OIL'). Por isso a tela mostra a
+      previa antes de salvar.
+    - `manual_part_numbers` para o que nenhum substring pega, como os tres
+      'ENGINE GP'.
+    """
+
+    __tablename__ = "serial_rules"
+    __table_args__ = (
+        # Linha unica: configuracao nao tem por que ter historico de linhas
+        # soltas, e duas linhas silenciosamente divergentes seriam piores.
+        CheckConstraint("id = 1", name="ck_serial_rules_singleton"),
+    )
+
+    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True, default=1)
+    substrings: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=sa.text("'{}'::text[]")
+    )
+    manual_part_numbers: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=sa.text("'{}'::text[]")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.dashboard import router as dashboard_router
 from app.api.documents import router as documents_router
+from app.api.parts import router as parts_router
 from app.deps import get_storage
 from shared.config import settings
 
@@ -27,6 +28,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(documents_router)
     app.include_router(dashboard_router)
+    app.include_router(parts_router)
 
     @app.get("/health")
     def health():

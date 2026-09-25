@@ -97,6 +97,14 @@ jobs:
       # A duplicata e decidida por uma consulta com indice composto, entao so
       # um banco de verdade a testa. O check apaga os documentos da base que
       # receber -- aqui e o Postgres efemero do servico, criado para este job.
+      # A lista de PN so e testavel contra banco: a regra de serial e uma
+      # expressao SQL e o lookup depende do indice. Apaga a tabela do banco que
+      # receber -- aqui e o Postgres efemero do servico.
+      - name: check_parts
+        env:
+          DATABASE_URL: postgresql+psycopg://invoice:invoice@localhost:5432/documentreader
+        run: python check_parts.py
+
       - name: check_dedupe
         env:
           DATABASE_URL: postgresql+psycopg://invoice:invoice@localhost:5432/documentreader

@@ -40,7 +40,7 @@ o patch chega até lá e quem abre o PR está na seção seguinte.
 | `shared/shared/` | `function/pipeline/structurer_local.py` |
 | `function/pipeline/structurer.py`, `extractor.py` | `function/doc_worker_local.py` |
 | `function/doc_worker.py`¹, `function_app.py` | `function/requirements-local.txt` |
-| `check_rules.py`, `check_structurer.py`, `check_dedupe.py` | `start-local.sh`, `stop-local.sh` |
+| `check_rules.py`, `check_structurer.py`, `check_dedupe.py`, `check_parts.py` | `start-local.sh`, `stop-local.sh` |
 | `DEPLOY.md`, `scripts/` | |
 | `backend/alembic/versions/`, `db/db-setup-v2.sql` | `docs/modo-local.md`, `docs/cat-cd/` |
 | `aiagent-documentreader-infrastructure-azure/` | `.env.local`, `.local/` |
@@ -321,9 +321,13 @@ python check_rules.py        # 75/75
 python check_structurer.py   # 14/14
 cd function && python -c "import function_app"
 
-# o unico check que precisa de banco (migrado, e APAGA os documentos dele)
-DATABASE_URL=postgresql+psycopg://invoice:invoice@localhost:5432/documentreader \
+# os dois que precisam de banco migrado -- e que APAGAM dados dele:
+# o check_dedupe apaga os documentos, o check_parts apaga a lista de PN.
+# Aponte para uma base de teste, nunca para a de desenvolvimento.
+DATABASE_URL=postgresql+psycopg://invoice:invoice@localhost:5432/dedupe_test \
     python check_dedupe.py   # 12/12
+DATABASE_URL=postgresql+psycopg://invoice:invoice@localhost:5432/dedupe_test \
+    python check_parts.py    # 25/25
 ```
 
 O `import function_app` **antes de qualquer publish**. Já subimos um módulo que
