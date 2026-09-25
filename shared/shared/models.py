@@ -139,6 +139,10 @@ class InvoicePartNumberItem(Base):
     )
 
     part_number: Mapped[str | None] = mapped_column(String(64), index=True)
+    # Um registro por serial, nao uma lista: motor repete o MESMO part number,
+    # uma vez para cada serial. A fatura 93872204 traz QTY 7 de 6522586 e sete
+    # seriais, e vira sete linhas com quantidade 1.
+    serial_number: Mapped[str | None] = mapped_column(String(64), index=True)
     description: Mapped[str | None] = mapped_column(Text)
     quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     unit_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))

@@ -9,8 +9,8 @@ Esforço: **XS** < 1h · **S** ~meio dia · **M** ~1–2 dias · **L** ~1 semana
 |---|---|---|---|---|
 | ~~1~~ | ~~Poison handler grava status `error`~~ | XS | alto | **feito** |
 | 2 | `Unit` e `Unit Weight` | S | médio | — |
-| 3 | Lista de PN: tabela, import CSV e checagem | M | **muito alto** | — |
-| 4 | Serial Number (tabela própria + regra ENGINE) | M | alto | 3 |
+| ~~3~~ | ~~Lista de PN: tabela, import CSV e checagem~~ | M | **muito alto** | **feito** |
+| ~~4~~ | ~~Serial Number~~ | M | alto | **feito** |
 | 5 | Confiança por campo e geral | M | alto | — |
 | ~~6~~ | ~~Duplicatas por (invoice, fornecedor)~~ | M | médio | **feito** |
 | 7 | Classificação invoice × packing list | L | alto | — |
@@ -165,14 +165,31 @@ Dois detalhes achados na exploração:
   `detail` do FastAPI nunca chega à tela. Para relatar erro por linha do CSV,
   estender `api()`.
 
-## 4. Serial Number (M)
+## 4. Serial Number (M) — feito em 25/09
 
 Mandatório, e a premissa "TELA DE MANUTENÇÃO PARA ITENS COM SERIAL NUMBER" diz
 que serial é entidade de primeira classe. Então **tabela própria**, uma linha
 por serial.
 
-Migração `0006`: `invoice_item_serial_numbers` (`id`, `item_id` FK CASCADE,
-`serial_number` `String(64)` indexado, `created_at`).
+**A tabela própria não foi necessária.** O cliente esclareceu que motor repete
+o **mesmo** part number, uma vez por serial — e não que um registro tenha vários
+seriais. Então `serial_number` é coluna de `invoice_part_number_items`
+(migração `0006`), e o structurer expande a linha impressa em N registros com
+quantidade 1 e `amount` = `unit_price`.
+
+Confirmado na fatura **93872204**, de motor: `QTY 7` de `6522586` e sete
+seriais numa tabela `Part Number | Serial Number` separada da tabela de itens.
+Os seriais são `XWE42867, 42871, 42879, 42880, 42881, 42882, 42883` — **não
+consecutivos**, então checagem de continuidade numérica estaria errada; o que
+vale é o formato, e serial que destoa dos irmãos vira nota.
+
+Nesse layout o cabeçalho tem **duas** colunas, não quatro: o `Pin Number`
+aparece como rótulo de seção solto, sem valor. Não há coluna de PIN no schema
+— nenhum documento do corpus traz valor nela.
+
+A quantidade 1 nos registros expandidos não é detalhe: sem ela a soma das
+linhas daria 7× o total impresso e **toda** fatura de motor entraria em
+`needs_review` com erro falso.
 
 **Só preenchemos quando o part number for motor** — e a regra sai de graça do
 item 3: `is_engine`, derivado do `NOME` da lista (`ENGINE AR-COMPL` para

@@ -6,7 +6,8 @@ Rode da raiz do repo:  & .\function\.venv\Scripts\python.exe .\check_structurer.
 import json, os, re, sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "function"))
-from pipeline.structurer import _normalise, _snum, _SYSTEM_PROMPT
+from pipeline.structurer import (_ENGINE_RULES, _normalise, _snum, _SYSTEM_PROMPT,
+                                 candidate_part_numbers)
 
 RAW = os.path.join(os.path.expanduser("~"), "Downloads", "raw-civ-cap.json")
 
@@ -153,6 +154,78 @@ check("todos viram Decimal no worker", all(vira_decimal(v) for v in numericos), 
 # A soma tem de continuar fechando com o total impresso -- sem nota de erro.
 check("nenhuma nota de total que nao fecha",
       any("nao fecha" in v for v in saida["validation"]), False)
+
+print("=== 9. serial: uma linha impressa vira um registro por serial ===")
+# Fatura 93872204, de motor: QTY 7 de 6522586 e sete seriais numa tabela
+# 'Part Number | Serial Number'. Os seriais NAO sao consecutivos (pula 68-70 e
+# 72-78), entao completar a sequencia seria inventar dado.
+SERIAIS = ["XWE42867", "XWE42871", "XWE42879", "XWE42880",
+           "XWE42881", "XWE42882", "XWE42883"]
+motor = {"invoices": [{
+    "invoice_number": "AE28 519364", "supplier": "Caterpillar, Inc.",
+    "total": "124894.80", "packaging_cost": "608.82",
+    "line_items": [{"part_number": "6522586", "quantity": "7",
+                    "unit_price": "17755.14", "amount": "124285.98",
+                    "serial_numbers": SERIAIS}]}], "confidence": 0.95}
+saida = _normalise(motor, 0.95, content="6522586", exigem_serial={"6522586"})
+linhas = saida["invoices"][0]["line_items"]
+check("7 registros, um por serial", len(linhas), 7)
+check("todos com o mesmo part number", {l["part_number"] for l in linhas}, {"6522586"})
+check("os sete seriais, na ordem lida", [l["serial_number"] for l in linhas], SERIAIS)
+check("quantidade 1 em cada", {l["quantity"] for l in linhas}, {"1"})
+check("amount = unit_price", {l["amount"] for l in linhas}, {"17755.14"})
+# A expansao nao pode quebrar a conferencia aritmetica: 7 x 17755.14 continua
+# fechando com o total impresso. Sem quantidade 1 daria 7x e TODA fatura de
+# motor entraria em needs_review com erro falso.
+check("total impresso preservado", saida["invoices"][0]["total"], "124894.80")
+check("nenhuma nota de total que nao fecha",
+      any("nao fecha" in v for v in saida["validation"]), False)
+
+print("=== 9b. serial: o que falta vira nota, nunca invencao ===")
+faltando = {"invoices": [{"invoice_number": "X", "total": "35510.28",
+    "line_items": [{"part_number": "6522586", "quantity": "7",
+                    "unit_price": "17755.14", "amount": "35510.28",
+                    "serial_numbers": ["XWE42867", "XWE42871"]}]}], "confidence": 0.95}
+r = _normalise(faltando, 0.95, content="6522586", exigem_serial={"6522586"})
+check("expande no que foi lido, nao na quantidade", len(r["invoices"][0]["line_items"]), 2)
+check("e avisa a divergencia",
+      any("2 serial(is) lido(s)" in v for v in r["validation"]), True)
+
+semnada = {"invoices": [{"invoice_number": "X", "total": "17755.14",
+    "line_items": [{"part_number": "6522586", "quantity": "1",
+                    "unit_price": "17755.14", "amount": "17755.14"}]}], "confidence": 0.95}
+r = _normalise(semnada, 0.95, content="6522586", exigem_serial={"6522586"})
+check("motor sem serial mantem a linha", len(r["invoices"][0]["line_items"]), 1)
+check("e avisa que falta", any("exige serial number" in v for v in r["validation"]), True)
+check("serial fica nulo", r["invoices"][0]["line_items"][0]["serial_number"], None)
+
+print("=== 9c. quem nao exige serial nao e cobrado ===")
+r = _normalise(semnada, 0.95, content="6522586", exigem_serial=set())
+check("sem aviso quando a peca nao exige",
+      any("exige serial number" in v for v in r["validation"]), False)
+
+print("=== 9d. serial fora do padrao dos irmaos vira nota ===")
+misto = {"invoices": [{"invoice_number": "X", "total": "2.00",
+    "line_items": [{"part_number": "6522586", "quantity": "2",
+                    "unit_price": "1.00", "amount": "2.00",
+                    "serial_numbers": ["XWE42867", "1234"]}]}], "confidence": 0.95}
+r = _normalise(misto, 0.95, content="6522586", exigem_serial={"6522586"})
+check("formatos diferentes sao sinalizados",
+      any("formatos diferentes" in v for v in r["validation"]), True)
+
+print("=== 9e. o prompt de motor so entra quando ha motor ===")
+low = re.sub(r"\s+", " ", _ENGINE_RULES.lower())
+check("pede a lista de seriais", '"serial_numbers"' in low, True)
+check("proibe inventar para fechar a quantidade", "do not invent a serial" in low, True)
+check("proibe o modelo expandir sozinho", "do not split the line yourself" in low, True)
+check("traz o caso medido", "xwe42867" in low, True)
+check("nao esta no prompt padrao", "serial_numbers" in _SYSTEM_PROMPT.replace(
+    '"manufacturer", "serial_numbers"', ""), False)
+
+print("=== 9f. a pre-varredura acha o part number no texto cru ===")
+check("acha o motor", "6522586" in candidate_part_numbers("QTY 7 6522586 CAPTIVE"),  True)
+check("aceita a forma com hifen", "463-8344" in candidate_part_numbers("item 463-8344 x2"), True)
+check("descarta prosa", candidate_part_numbers("nenhum codigo aqui"), [])
 
 print()
 if falhas:

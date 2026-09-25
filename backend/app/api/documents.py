@@ -51,6 +51,7 @@ def _opt_date(v) -> date | None:
 def _serialize_line(li: InvoicePartNumberItem) -> dict:
     return {
         "part_number": li.part_number,
+        "serial_number": li.serial_number,
         "description": li.description,
         "quantity": li.quantity,
         "unit_price": li.unit_price,
@@ -111,6 +112,7 @@ def _serialize_document(doc: Document) -> dict:
 
 class LineIn(BaseModel):
     part_number: str | None = None
+    serial_number: str | None = None
     description: str | None = None
     quantity: str | float | None = None
     unit_price: str | float | None = None
@@ -268,6 +270,7 @@ def update_document(
             inv.line_items.append(
                 InvoicePartNumberItem(
                     part_number=_opt_str(li.part_number),
+                    serial_number=_opt_str(li.serial_number),
                     description=_opt_str(li.description),
                     quantity=_opt_decimal(li.quantity),
                     unit_price=_opt_decimal(li.unit_price),

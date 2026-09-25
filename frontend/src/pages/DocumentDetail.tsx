@@ -18,6 +18,7 @@ const inputCls =
 
 interface LineForm {
   part_number: string;
+  serial_number: string;
   description: string;
   quantity: string;
   unit_price: string;
@@ -51,6 +52,7 @@ function buildForm(d: Detail): InvoiceForm[] {
     total: str(inv.total),
     line_items: inv.line_items.map((li) => ({
       part_number: str(li.part_number),
+      serial_number: str(li.serial_number),
       description: str(li.description),
       quantity: str(li.quantity),
       unit_price: str(li.unit_price),
@@ -77,6 +79,7 @@ function toPayload(invoices: InvoiceForm[]): DocumentUpdate {
       total: orNull(inv.total),
       line_items: inv.line_items.map((l) => ({
         part_number: orNull(l.part_number),
+        serial_number: orNull(l.serial_number),
         description: orNull(l.description),
         quantity: orNull(l.quantity),
         unit_price: orNull(l.unit_price),
@@ -95,6 +98,7 @@ function toPayload(invoices: InvoiceForm[]): DocumentUpdate {
 
 const emptyLine = (): LineForm => ({
   part_number: "",
+  serial_number: "",
   description: "",
   quantity: "",
   unit_price: "",
@@ -329,6 +333,7 @@ export function DocumentDetail() {
                       <thead className="text-[11px] uppercase tracking-wide text-neutral-400">
                         <tr>
                           <th className="py-1.5 pr-2 font-medium">Part #</th>
+                          <th className="py-1.5 pr-2 font-medium">Serial</th>
                           <th className="py-1.5 pr-2 font-medium">Descrição</th>
                           <th className="py-1.5 pr-2 text-right font-medium">Qtd</th>
                           <th className="py-1.5 pr-2 text-right font-medium">Unitário{inv.currency ? ` (${inv.currency})` : ""}</th>
@@ -348,6 +353,7 @@ export function DocumentDetail() {
                             {editable ? (
                               <>
                                 <Cell><input className={inputCls} value={l.part_number} onChange={(e) => setLine(i, li, "part_number", e.target.value)} /></Cell>
+                                <Cell><input className={inputCls} value={l.serial_number} onChange={(e) => setLine(i, li, "serial_number", e.target.value)} /></Cell>
                                 <Cell wide><input className={inputCls} value={l.description} onChange={(e) => setLine(i, li, "description", e.target.value)} /></Cell>
                                 <Cell><input className={inputCls} inputMode="decimal" value={l.quantity} onChange={(e) => setLine(i, li, "quantity", e.target.value)} /></Cell>
                                 <Cell><input className={inputCls} inputMode="decimal" value={l.unit_price} onChange={(e) => setLine(i, li, "unit_price", e.target.value)} /></Cell>
@@ -365,6 +371,7 @@ export function DocumentDetail() {
                             ) : (
                               <>
                                 <td className="py-1.5 pr-2 font-mono text-neutral-700">{l.part_number || EMPTY}</td>
+                                <td className="py-1.5 pr-2 font-mono text-neutral-600">{l.serial_number || EMPTY}</td>
                                 <td className="py-1.5 pr-2 text-neutral-800">{l.description || EMPTY}</td>
                                 <td className="py-1.5 pr-2 text-right tabular text-neutral-600">{l.quantity || EMPTY}</td>
                                 <td className="py-1.5 pr-2 text-right tabular text-neutral-600">{money(l.unit_price || null, inv.currency || null)}</td>

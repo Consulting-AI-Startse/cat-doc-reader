@@ -50,7 +50,7 @@ Return ONLY JSON in exactly this shape:
 "currency", "freight", "packaging_cost", "total", "line_items": [{"part_number", "description",
 "quantity", "unit_price", "amount", "purchase_order", "incoterm",
 "country_of_origin", "domestic_freight", "packaging", "exporter", "supplier",
-"manufacturer"}]}], "confidence": 0..1}
+"manufacturer", "serial_numbers"}]}], "confidence": 0..1}
 
 Every monetary and quantity field above is a STRING copied as printed -- see
 rule 6. "confidence" is the one number you report as a number.
@@ -114,6 +114,36 @@ HARD RULES — these are the errors that have actually occurred:
 8. "confidence" is your calibrated confidence in the extraction as a whole.
    Report below 0.90 whenever the scan is poor, a label is ambiguous, or you had
    to infer rather than read a value.
+"""
+
+# Acrescentado ao prompt SO quando a pre-varredura achou, na lista de PN
+# liberados, alguma peca marcada como "exige serial". Nao vale a pena carregar
+# estas instrucoes nas outras faturas: elas so tem como efeito o modelo procurar
+# uma tabela que nao existe.
+_ENGINE_RULES = """\
+
+9. SERIAL NUMBERS. This document contains at least one part that carries serial
+   numbers. Somewhere in it there is a table pairing part numbers with serials,
+   with a header like "Part Number | Serial Number" (a "Pin Number" column may
+   appear, empty or elsewhere).
+
+   For each line item, return every serial that belongs to its part number, as
+   a list of strings in "serial_numbers", copied exactly as printed.
+
+   A real example, with quantity 7:
+
+       |   Part Number | Serial Number   |
+       |       6522586 | XWE42867        |
+       |       6522586 | XWE42871        |
+       ... five more rows ...
+
+   -> that line gets "serial_numbers": ["XWE42867","XWE42871", ...] with all 7.
+
+   Do NOT invent a serial to match the quantity, and do NOT renumber: the seven
+   above are not consecutive. Return only what is printed. If a line has no
+   serial in the document, return an empty list.
+   Do NOT split the line yourself -- keep ONE line item per printed row, with
+   the full quantity; this code expands it.
 """
 
 _USER_TEMPLATE = """\
@@ -306,6 +336,27 @@ def _close(a, b) -> bool:
     return abs(a - b) <= max(TOLERANCE_ABS, TOLERANCE_REL * max(abs(a), abs(b)))
 
 
+def candidate_part_numbers(content: str) -> list[str]:
+    """Tudo no texto cru que TEM FORMA de part number CAT.
+
+    Rede larga de proposito: serve para uma unica pergunta -- este documento
+    menciona alguma peca que exige serial? Falso positivo aqui so faz o prompt
+    de motor ser usado a mais, e ele nao obriga o modelo a inventar serial.
+
+    Medido no CIV, o pior documento do corpus: 83 mil caracteres de OCR sujo
+    rendem 22 candidatos, e a consulta que os resolve leva 0,4 ms.
+    """
+    achados = []
+    vistos = set()
+    for bruto in re.findall(r"[0-9A-Za-z][0-9A-Za-z\-]{4,15}", content or ""):
+        texto = bruto.upper()
+        base, _ = _split_part_number(texto)
+        if PART_NUMBER_RE.match(base) and base not in vistos:
+            vistos.add(base)
+            achados.append(base)
+    return achados
+
+
 def _cat_invoice_numbers(content: str):
     """Devolve (numeros, aviso). Aviso != None quando a leitura foi menos segura."""
     content = content or ""
@@ -332,7 +383,7 @@ def _cat_invoice_numbers(content: str):
 class LLMStructurer(ABC):
 
     @abstractmethod
-    def structure(self, extraction: dict[str, Any]) -> dict[str, Any]:
+    def structure(self, extraction: dict[str, Any], exigem_serial=None) -> dict[str, Any]:
         ...
 
 
@@ -373,7 +424,14 @@ class AzureOpenAIStructurer(LLMStructurer):
                 ),
             )
 
-    def structure(self, extraction: dict[str, Any]) -> dict[str, Any]:
+    def structure(self, extraction: dict[str, Any], exigem_serial=None) -> dict[str, Any]:
+        """`exigem_serial`: chaves normalizadas que exigem serial, da lista de PN.
+
+        Quem decide isso e uma consulta, nao o modelo: perguntar ao LLM "esta
+        fatura e de motor?" devolveria o julgamento probabilistico que a coluna
+        requires_serial existe para eliminar.
+        """
+        exigem_serial = exigem_serial or set()
         content = extraction.get("content") or ""
 
         prepass = {"invoices": []}
@@ -391,7 +449,8 @@ class AzureOpenAIStructurer(LLMStructurer):
         response = self._client.chat.completions.create(
             model=self._deployment,
             messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "system",
+                 "content": _SYSTEM_PROMPT + (_ENGINE_RULES if exigem_serial else "")},
                 {"role": "user", "content": user},
             ],
             response_format={"type": "json_object"},
@@ -401,10 +460,62 @@ class AzureOpenAIStructurer(LLMStructurer):
 
         payload = json.loads(response.choices[0].message.content or "{}")
         numbers, note = _cat_invoice_numbers(content)
-        return _normalise(payload, extraction.get("confidence"), numbers, note, content)
+        return _normalise(payload, extraction.get("confidence"), numbers, note,
+                          content, exigem_serial)
 
 
-def _check_lines(tag: str, raw_lines: list, content: str):
+def _expand_serials(tag: str, li: dict, exige_serial: bool):
+    """(registros, avisos). Uma linha impressa vira um registro por serial.
+
+    Regra do cliente: motor repete o MESMO part number, uma vez para cada
+    serial. A fatura 93872204 traz 'QTY 7' de 6522586 e sete seriais
+    (XWE42867, 42871, 42879...), que nao sao consecutivos -- por isso a
+    expansao copia o que foi lido e nunca completa a sequencia.
+
+    Os registros saem com quantidade 1 e amount = unit_price. Sem isso a soma
+    das linhas daria 7x o total impresso e a conferencia aritmetica, que existe
+    para achar defeito, acusaria erro em TODA fatura de motor.
+    """
+    seriais = [str(x).strip() for x in (li.get("serial_numbers") or []) if str(x).strip()]
+    avisos = []
+
+    if not seriais:
+        if exige_serial:
+            # Serial e mandatorio para motor pelo contrato do cliente. Sem ele o
+            # documento tem de chegar ao revisor dizendo o que falta.
+            avisos.append(
+                "%s: '%s' exige serial number e nenhum foi lido" % (tag, li.get("part_number"))
+            )
+        return [dict(li, serial_number=None)], avisos
+
+    qty = _num(li.get("quantity"))
+    if qty is not None and abs(qty - len(seriais)) > 0.001:
+        avisos.append(
+            "%s: quantidade %s e %d serial(is) lido(s); expandido em %d"
+            % (tag, li.get("quantity"), len(seriais), len(seriais))
+        )
+
+    # Serial que destoa do formato dos irmaos: os do mesmo motor seguem um
+    # padrao (todos 'XWE428xx' na 93872204), entao o que foge merece um olhar.
+    formatos = {re.sub(r"[0-9]", "#", s_) for s_ in seriais}
+    if len(formatos) > 1:
+        avisos.append(
+            "%s: seriais com formatos diferentes (%s)" % (tag, ", ".join(sorted(formatos)))
+        )
+
+    unit = _num(li.get("unit_price"))
+    registros = []
+    for serial in seriais:
+        registros.append(dict(
+            li,
+            serial_number=serial,
+            quantity="1",
+            amount=_s(li.get("unit_price")) if unit is not None else li.get("amount"),
+        ))
+    return registros, avisos
+
+
+def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None):
     """Confere PN e aritmetica. Marca o que esta errado e mantem TODA linha.
 
     Descartar linha destruia dados: '674-8657' e part number legitimo e nao
@@ -413,6 +524,7 @@ def _check_lines(tag: str, raw_lines: list, content: str):
     kept = []
     issues = []
     running = 0.0
+    exigem_serial = exigem_serial or set()
 
     for n, li in enumerate(raw_lines):
         printed, normalised, suffix, status, note = _classify_part_number(
@@ -445,13 +557,20 @@ def _check_lines(tag: str, raw_lines: list, content: str):
                 % (tag, n, qty, unit, qty * unit, amount)
             )
 
-        kept.append(li)
+        # A expansao vem depois da conferencia aritmetica da linha impressa:
+        # conferir os registros expandidos seria comparar 1 x unit_price com
+        # ele mesmo, o que nao testa nada.
+        registros, avisos = _expand_serials(
+            "%s.line[%d]" % (tag, n), li, normalised in exigem_serial
+        )
+        issues.extend(avisos)
+        kept.extend(registros)
 
     return kept, issues, running
 
 
 def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
-               cat_note=None, content: str = "") -> dict[str, Any]:
+               cat_note=None, content: str = "", exigem_serial=None) -> dict[str, Any]:
     """Forca a saida do modelo no contrato do structurer e valida o que der.
 
     O numero da invoice e o do proprio documento: 10 das 28 faturas do corpus
@@ -500,7 +619,7 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
         tag = "invoice[%d]" % index
 
         raw_lines = [li for li in (inv.get("line_items") or []) if isinstance(li, dict)]
-        kept, line_issues, running = _check_lines(tag, raw_lines, content)
+        kept, line_issues, running = _check_lines(tag, raw_lines, content, exigem_serial)
         issues.extend(line_issues)
 
         number = inv.get("invoice_number")
@@ -554,6 +673,7 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
             line_items.append({
                 "part_number": _s(li.get("part_number")),
                 "part_number_normalised": li.get("part_number_normalised"),
+                "serial_number": li.get("serial_number"),
                 "part_number_suffix": li.get("part_number_suffix"),
                 "part_number_status": li.get("part_number_status"),
                 "description": li.get("description"),
@@ -607,7 +727,7 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
 
 class MockStructurer(LLMStructurer):
 
-    def structure(self, extraction: dict[str, Any]) -> dict[str, Any]:
+    def structure(self, extraction: dict[str, Any], exigem_serial=None) -> dict[str, Any]:
         invoices = []
         for inv in extraction.get("invoices", []):
             line_items = []
@@ -628,6 +748,7 @@ class MockStructurer(LLMStructurer):
                     "domestic_freight": _s(it.get("domestic_freight")),
                     "packaging": _s(it.get("packaging")),
                     "exporter": it.get("exporter"),
+                    "serial_number": None,
                     "supplier": it.get("supplier"),
                     "manufacturer": it.get("manufacturer"),
                 })

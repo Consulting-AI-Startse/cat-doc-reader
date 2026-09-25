@@ -9,6 +9,8 @@ export type DocumentStatus =
 // Uma linha de part number (o grão do output). Todos os campos podem vir nulos.
 export interface LineItem {
   part_number: string | null;
+  /** Um registro por serial: motor repete o mesmo part number. */
+  serial_number: string | null;
   description: string | null;
   quantity: string | number | null;
   unit_price: string | number | null;
@@ -86,6 +88,7 @@ export interface Metrics {
 
 export interface LineInput {
   part_number: string | null;
+  serial_number: string | null;
   description: string | null;
   quantity: string | null;
   unit_price: string | null;

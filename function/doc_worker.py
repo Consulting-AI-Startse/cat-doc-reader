@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from shared.config import settings
 from shared.db import SessionLocal
 from shared.dedupe import find_original, normalise_invoice_number, normalise_supplier
+from shared.parts import lookup as lookup_parts
 from shared.models import (
     Document,
     DocumentEvent,
@@ -19,7 +21,7 @@ from shared.models import (
 from shared.storage import BlobStorage, get_blob_storage
 
 from pipeline.extractor import DocumentExtractor, MockExtractor, tables_summary
-from pipeline.structurer import LLMStructurer, MockStructurer
+from pipeline.structurer import LLMStructurer, MockStructurer, candidate_part_numbers
 
 # Gancho do modo local. doc_worker_local.py esta no .funcignore e nao vai para o
 # Function App, entao la este import falha e sobra None -- o caminho de producao
@@ -32,6 +34,26 @@ except ModuleNotFoundError:
     _local = None
 
 CONFIDENCE_THRESHOLD = 0.90
+
+logger = logging.getLogger("doc_worker")
+
+
+def _pecas_com_serial(db: Session, content: str) -> set[str]:
+    """Chaves, entre as citadas no texto, que a lista marca como exigindo serial.
+
+    Uma consulta por documento. Vazio quando a lista ainda nao foi importada,
+    e ai o caminho segue exatamente como antes -- a feature nao pode depender
+    de a lista existir para o resto funcionar.
+    """
+    candidatos = candidate_part_numbers(content)
+    if not candidatos:
+        return set()
+    try:
+        achados = lookup_parts(db, candidatos)
+    except Exception as exc:  # noqa: BLE001 - lista ausente nao derruba o documento
+        logger.warning("lista de part numbers indisponivel (%s); serial nao sera pedido", exc)
+        return set()
+    return {k for k, linha in achados.items() if linha.requires_serial}
 
 
 def build_extractor() -> DocumentExtractor:
@@ -99,7 +121,14 @@ def process_document(
     try:
         content = storage.download(doc.blob_path)
         extraction = extractor.extract(content)
-        result = structurer.structure(extraction)
+
+        # Entre o extractor (sem LLM) e o structurer (com LLM): varre o texto
+        # cru, resolve os candidatos contra a lista de PN e descobre se alguma
+        # peca exige serial. E deterministico e custa uma consulta -- perguntar
+        # ao modelo "esta fatura e de motor?" devolveria o palpite que a coluna
+        # requires_serial existe justamente para eliminar.
+        exigem_serial = _pecas_com_serial(db, extraction.get("content") or "")
+        result = structurer.structure(extraction, exigem_serial)
 
         doc.invoices.clear()
         duplicates = []
@@ -117,6 +146,7 @@ def process_document(
                 invoice.line_items.append(
                     InvoicePartNumberItem(
                         part_number=li.get("part_number"),
+                        serial_number=li.get("serial_number"),
                         description=li.get("description"),
                         quantity=_dec(li.get("quantity")),
                         unit_price=_dec(li.get("unit_price")),
