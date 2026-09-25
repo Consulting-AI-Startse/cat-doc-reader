@@ -12,7 +12,11 @@ Os numeros vem da PN Liberados.xlsx real, medidos em 25/09: 206.769 pecas,
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "shared"))
+_raiz = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_raiz, "shared"))
+# O relatorio de import e testado pelo endpoint, entao o pacote do backend
+# entra no caminho. E o unico check que precisa dele.
+sys.path.insert(0, os.path.join(_raiz, "backend"))
 
 from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.orm import Session
@@ -131,6 +135,31 @@ with Session(engine) as db:
     regras.substrings = []
     regras.manual_part_numbers = []
     db.commit()
+
+print("=== o relatorio de import fecha: recebidas = gravadas + duplicadas + erros ===")
+# Numero sem explicacao e o mesmo defeito de documento gravado sem nota: a
+# primeira versao dizia "3 ignoradas" e listava 2 erros, e a terceira era uma
+# duplicata que sumia calada.
+from fastapi.testclient import TestClient
+import app.main as _m  # noqa: E402
+cliente = TestClient(_m.app)
+# Montado linha a linha de proposito: concatenacao implicita de literais liga
+# mais forte que o '*', entao juntar tudo num parenteses repetia o arquivo
+# inteiro 40 vezes em vez de gerar uma chave longa.
+CSV = "\n".join([
+    "PECA,NOME",
+    "6511308,ENGINE AR-COMPL",
+    "2P1467,SUPPORT-ENGINE",
+    "6511308,ENGINE AR-COMPL",      # duplicata dentro do arquivo
+    ",SEM PART NUMBER",             # sem chave
+    "X" * 40 + ",LONGO DEMAIS",     # chave acima de 32 caracteres
+]).encode()
+r = cliente.post("/parts/import", files={"file": ("t.csv", CSV, "text/csv")}).json()
+check("recebidas", r["recebidas"], 5)
+check("gravadas", r["gravadas"], 2)
+check("duplicadas contadas", r["duplicadas_no_arquivo"], 1)
+check("erros listados", len(r["erros"]), 2)
+check("a conta fecha", r["gravadas"] + r["duplicadas_no_arquivo"] + len(r["erros"]), r["recebidas"])
 
 print()
 if falhas:

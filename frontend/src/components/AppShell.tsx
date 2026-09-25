@@ -1,4 +1,4 @@
-import { Link, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet } from "react-router-dom";
 
 export function AppShell() {
   return (
@@ -10,6 +10,29 @@ export function AppShell() {
           </Link>
           <span className="h-5 w-px bg-neutral-200" />
           <span className="text-sm font-semibold text-neutral-500">Document Reader</span>
+          {/* Ate aqui nao havia menu: so se navegava pelo Dashboard, entao a
+              tela de part numbers seria inalcancavel sem isto. */}
+          <nav className="ml-4 flex items-center gap-1">
+            {[
+              { to: "/", rotulo: "Documentos", exato: true },
+              { to: "/part-numbers", rotulo: "Part numbers", exato: false },
+            ].map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.exato}
+                className={({ isActive }) =>
+                  `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-neutral-100 text-neutral-900"
+                      : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
+                  }`
+                }
+              >
+                {item.rotulo}
+              </NavLink>
+            ))}
+          </nav>
         </div>
       </header>
       <Outlet />

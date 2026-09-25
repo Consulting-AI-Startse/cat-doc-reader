@@ -7,6 +7,7 @@ import "./index.css";
 import { AppShell } from "./components/AppShell";
 import { Dashboard } from "./pages/Dashboard";
 import { DocumentDetail } from "./pages/DocumentDetail";
+import { PartNumbers } from "./pages/PartNumbers";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -20,6 +21,8 @@ createRoot(document.getElementById("root")!).render(
           <Route element={<AppShell />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/documents/:id" element={<DocumentDetail />} />
+            {/* Antes do catch-all, senao cai no Navigate para "/". */}
+            <Route path="/part-numbers" element={<PartNumbers />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

@@ -11,9 +11,26 @@ interface FileUploadProps {
   file: File | null;
   onFile: (file: File) => void;
   onClear: () => void;
+  /** Padrões mantêm o comportamento de PDF: quem já usava não muda. */
+  accept?: string;
+  /** Extensão aceita, sem ponto. */
+  ext?: string;
+  rotulo?: string;
+  dica?: string;
+  /** O preview em <iframe> só faz sentido para PDF. */
+  preview?: boolean;
 }
-/** Drag-drop + preview do PDF selecionado. O Confirmar/Cancelar vive no modal. */
-export function FileUpload({ file, onFile, onClear }: FileUploadProps) {
+/** Drag-drop + preview do arquivo selecionado. O Confirmar/Cancelar vive no modal. */
+export function FileUpload({
+  file,
+  onFile,
+  onClear,
+  accept = ".pdf",
+  ext = "pdf",
+  rotulo = "Arraste o documento (PDF) aqui",
+  dica = "Um documento pode conter vários invoices.",
+  preview = true,
+}: FileUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -30,9 +47,9 @@ export function FileUpload({ file, onFile, onClear }: FileUploadProps) {
 
   const handleFile = useCallback(
     (f: File) => {
-      if (f.type === "application/pdf" || /\.pdf$/i.test(f.name)) onFile(f);
+      if (new RegExp(`\\.${ext}$`, "i").test(f.name)) onFile(f);
     },
-    [onFile]
+    [onFile, ext]
   );
 
   const onDrop = useCallback(
@@ -67,7 +84,7 @@ export function FileUpload({ file, onFile, onClear }: FileUploadProps) {
             Trocar
           </button>
         </div>
-        {previewUrl && (
+        {preview && previewUrl && (
           <iframe
             title="preview"
             src={previewUrl}
@@ -99,7 +116,7 @@ export function FileUpload({ file, onFile, onClear }: FileUploadProps) {
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf"
+        accept={accept}
         onChange={(e: ChangeEvent<HTMLInputElement>) => {
           const f = e.target.files?.[0];
           if (f) handleFile(f);
@@ -112,10 +129,10 @@ export function FileUpload({ file, onFile, onClear }: FileUploadProps) {
         </svg>
       </div>
       <p className="text-sm font-medium text-neutral-700">
-        Arraste o documento (PDF) aqui ou{" "}
+        {rotulo} ou{" "}
         <span className="text-neutral-900 underline underline-offset-2">clique para buscar</span>
       </p>
-      <p className="mt-2 text-xs text-neutral-400">Um documento pode conter vários invoices.</p>
+      <p className="mt-2 text-xs text-neutral-400">{dica}</p>
     </div>
   );
 }

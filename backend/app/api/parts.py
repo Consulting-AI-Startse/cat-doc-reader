@@ -96,6 +96,7 @@ async def import_csv(
         file.filename, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
     )
     recebidas = 0
+    duplicadas = 0
     erros: list[str] = []
     vistos: set[str] = set()
     lote: list[dict] = []
@@ -132,8 +133,11 @@ async def import_csv(
                 erros.append("linha %d: part number '%s' tem mais de 32 caracteres" % (n, chave))
             continue
         # Duplicata dentro do proprio arquivo: o upsert em lote reclama de duas
-        # linhas com a mesma chave no mesmo comando.
+        # linhas com a mesma chave no mesmo comando. Nao e erro, mas e contada
+        # -- 'ignoradas' sem explicacao e o mesmo defeito de documento gravado
+        # sem nota.
         if chave in vistos:
+            duplicadas += 1
             continue
         vistos.add(chave)
         nome = (linha[1].strip() if len(linha) > 1 and linha[1] else None) or None
@@ -156,6 +160,8 @@ async def import_csv(
         "recebidas": recebidas,
         "gravadas": gravadas,
         "ignoradas": recebidas - gravadas,
+        # recebidas = gravadas + duplicadas + len(erros), sempre.
+        "duplicadas_no_arquivo": duplicadas,
         "total_na_lista": total,
         "requires_serial": marcadas,
         "erros": erros,
