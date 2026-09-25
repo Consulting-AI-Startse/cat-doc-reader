@@ -178,6 +178,27 @@ Migração `0006`: `invoice_item_serial_numbers` (`id`, `item_id` FK CASCADE,
 item 3: `is_engine`, derivado do `NOME` da lista (`ENGINE AR-COMPL` para
 `6511308` e `6522586`). Sem motor, não pedimos nem gravamos serial.
 
+### Serial x PIN, respondido (24/09)
+
+A pergunta 4 tinha resposta de negócio: **é motor → o valor é Serial; não é
+motor → é PIN.** Um motor tem várias peças, logo vários seriais, e os seriais
+do mesmo motor seguem um padrão — o que dá um segundo sinal, de conferência:
+serial que destoa do formato dos irmãos na mesma invoice recebe nota.
+
+**Mas `is_engine` não é `NOME` contendo `ENGINE`.** Medido na `PN Liberados.xlsx`
+(206.769 linhas): `ENGINE` em qualquer posição casa **910** peças, quase todas
+acessório — `SUPPORT-ENGINE`, `FILM-ENGINE OIL`, `CHART-ENGINE`,
+`PLATE-ENGINE S/N`. O que é motor de verdade é o prefixo `ENGINE AR` (*AR* =
+arrangement): **588** peças, e é onde caem os dois PNs conhecidos. Sobram 8
+casos de fronteira (`ENGINE GP` ×3, `ENGINE-PREP` ×2, `ENGINE SUPPORT` ×2,
+`ENGINE STALL.`) — `ENGINE GP` é o único duvidoso.
+
+**Pendência do próprio contrato:** o `SUBIR_FATURA_GA.xlsx` diz, em
+`Serial Number`, "MANDATÓRIO APENAS QUANDO FOR MOTOR **E OUTROS (MAPEAR)**".
+Então "não é motor ⇒ é PIN" vale hoje, mas as outras categorias ainda não foram
+mapeadas pela CAT. A classificação tem de ser uma regra nomeada e trocável, não
+um `if` espalhado.
+
 ## 5. Confiança por campo e geral (M)
 
 Requisito escrito ("CONFIDENCE SCORE GERAL E POR CAMPO"). Já prototipado e
@@ -207,6 +228,30 @@ Premissa: "INVOICES DUPLICADAS PRECISAM SER SINALIZADAS (INVOICE + FORNECEDOR)".
 Chave `(invoice_number, supplier)` normalizados — o que exige normalização de
 fornecedor antes (`DOKTAS DOKUMCULUK TIC. VE SAN. A.S.` e variantes).
 
+### Decisões (24/09)
+
+**`supplier` sobe para `Invoice`.** Hoje é coluna de `InvoicePartNumberItem`, e
+a chave pedida é de nível fatura — metade dela mora no nível errado. O
+`DocumentDetail.tsx` já contorna isso lendo `inv.line_items[0]?.supplier` e
+escrevendo com `setAllLines`, que é o schema denunciando o próprio erro.
+
+A condição para subir era "toda invoice tem um fornecedor só". Conferido no
+`raw-civ-cap.json`, que é o documento mais difícil do corpus (35 páginas, **6
+invoices de 6 fornecedores diferentes**): as 6 têm **exatamente um** `supplier`
+distinto — inclusive a `26VX0515`, que tem 3 linhas. O mesmo vale para
+`exporter`. Ressalva: é saída do modelo, não gabarito; o gabarito do cliente não
+tem coluna de fornecedor. Se algum dia aparecer fatura com dois fornecedores, a
+decisão se inverte.
+
+Corolário que importa para a checagem: **um documento contém N invoices**, então
+a duplicata é por invoice, nunca por documento.
+
+- **Marcar, nunca descartar** — nota em `validation` + `needs_review`, como o
+  `_check_lines` já faz. Mas a marcação é **visual na própria invoice**, não só
+  uma linha no meio das outras notas de validação.
+- **Só o novo é marcado.** O antigo é a referência, sempre.
+- **Sem backfill.** O banco de produção começa zerado.
+
 ## 7. Classificação invoice × packing list (L)
 
 Premissa: "IDENTIFICAR AQUILO QUE É UMA INVOICE OU NÃO". São **10 dos 30
@@ -233,9 +278,11 @@ produz.
    que sugere atribuído.
 3. Quais **incoterms tornam `Domestic Freight` obrigatório**? A própria planilha
    diz "MAPEAR".
-4. Nas CIVs de motor o cabeçalho é `Part Number / Serial Number / Pin Number`,
-   com **três valores para quatro colunas** (`6511308  F4E09020  ENGINE`).
-   `F4E09020` é **Serial** ou **PIN**?
+4. ~~Nas CIVs de motor o cabeçalho é `Part Number / Serial Number / Pin Number`,
+   com três valores para quatro colunas (`6511308  F4E09020  ENGINE`).
+   `F4E09020` é Serial ou PIN?~~ **Respondido em 24/09** — é motor → Serial;
+   não é motor → PIN. Ver item 4. Fica em aberto **quais são os "outros"** que
+   a planilha manda mapear.
 5. `Latino` / `Full Não Latino` na `FASES_LEITURA` — quais documentos e quais
    alfabetos?
 6. Com que frequência a **lista de PN** é atualizada? Define se o import precisa
