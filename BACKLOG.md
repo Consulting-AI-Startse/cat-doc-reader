@@ -12,9 +12,9 @@ Esforço: **XS** < 1h · **S** ~meio dia · **M** ~1–2 dias · **L** ~1 semana
 | 3 | Lista de PN: tabela, import CSV e checagem | M | **muito alto** | — |
 | 4 | Serial Number (tabela própria + regra ENGINE) | M | alto | 3 |
 | 5 | Confiança por campo e geral | M | alto | — |
-| 6 | Duplicatas por (invoice, fornecedor) | M | médio | norm. fornecedor |
+| ~~6~~ | ~~Duplicatas por (invoice, fornecedor)~~ | M | médio | **feito** |
 | 7 | Classificação invoice × packing list | L | alto | — |
-| 8 | Relatório de confiança por fornecedor | M | médio | 5, 6 |
+| 8 | Relatório de confiança por fornecedor | M | médio | 5 |
 | 9 | Métricas de processamento por período | M | médio | — |
 | — | `Invoice Type`, `Import Process`, `CSAR`, `PFO`, `##` | ? | ? | **bloqueado** |
 | — | Não-latino; Word/Excel | ? | ? | **escopo indefinido** |
@@ -222,13 +222,13 @@ Substitui a confiança auto-reportada pelo modelo, que já medimos ser inútil.
 Vale só no caminho Document Intelligence. O modo local pontua por página, não
 por palavra, e já declara `word_confidence_available: false`.
 
-## 6. Duplicatas (M)
+## 6. Duplicatas (M) — feito em 24/09
 
 Premissa: "INVOICES DUPLICADAS PRECISAM SER SINALIZADAS (INVOICE + FORNECEDOR)".
 Chave `(invoice_number, supplier)` normalizados — o que exige normalização de
 fornecedor antes (`DOKTAS DOKUMCULUK TIC. VE SAN. A.S.` e variantes).
 
-### Decisões (24/09)
+### Como ficou
 
 **`supplier` sobe para `Invoice`.** Hoje é coluna de `InvoicePartNumberItem`, e
 a chave pedida é de nível fatura — metade dela mora no nível errado. O

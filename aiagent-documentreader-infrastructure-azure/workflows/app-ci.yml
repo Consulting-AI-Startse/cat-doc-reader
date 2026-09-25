@@ -94,6 +94,14 @@ jobs:
           DATABASE_URL: postgresql+psycopg://invoice:invoice@localhost:5432/documentreader
         run: alembic upgrade head
 
+      # A duplicata e decidida por uma consulta com indice composto, entao so
+      # um banco de verdade a testa. O check apaga os documentos da base que
+      # receber -- aqui e o Postgres efemero do servico, criado para este job.
+      - name: check_dedupe
+        env:
+          DATABASE_URL: postgresql+psycopg://invoice:invoice@localhost:5432/documentreader
+        run: python check_dedupe.py
+
       # Conferir por information_schema, nao por 'alembic current': uma migracao
       # pode estar carimbada sem estar aplicada.
       - name: Conferir que as colunas existem de fato

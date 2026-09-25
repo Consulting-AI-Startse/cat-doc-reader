@@ -19,8 +19,16 @@ export interface LineItem {
   domestic_freight: string | number | null;
   packaging: string | number | null;
   exporter: string | null;
-  supplier: string | null;
   manufacturer: string | null;
+}
+
+// A fatura da qual esta e copia. Preenchido so na copia: a primeira entrada e
+// a referencia e nunca recebe marca.
+export interface DuplicateOf {
+  invoice_id: string;
+  document_id: string;
+  invoice_number: string | null;
+  supplier: string | null;
 }
 
 // Um invoice dentro de um documento.
@@ -28,8 +36,10 @@ export interface Invoice {
   id: string;
   invoice_number: string | null;
   invoice_date: string | null;
+  supplier: string | null;
   currency: string | null;
   total: string | number | null;
+  duplicate_of: DuplicateOf | null;
   line_items: LineItem[];
 }
 
@@ -86,13 +96,13 @@ export interface LineInput {
   domestic_freight: string | null;
   packaging: string | null;
   exporter: string | null;
-  supplier: string | null;
   manufacturer: string | null;
 }
 
 export interface InvoiceInput {
   invoice_number: string | null;
   invoice_date: string | null;
+  supplier: string | null;
   currency: string | null;
   total: string | null;
   line_items: LineInput[];

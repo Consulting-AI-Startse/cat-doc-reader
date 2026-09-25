@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Numeric,
     String,
     Text,
@@ -74,6 +75,10 @@ class Document(Base):
 class Invoice(Base):
 
     __tablename__ = "invoices"
+    __table_args__ = (
+        # A consulta de duplicata filtra pelas duas colunas juntas, sempre.
+        Index("ix_invoices_duplicate_key", "invoice_number_key", "supplier_key"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid.uuid4)
     document_id: Mapped[uuid.UUID] = mapped_column(
@@ -82,6 +87,25 @@ class Invoice(Base):
 
     invoice_number: Mapped[str | None] = mapped_column(String(128), index=True)
     invoice_date: Mapped[date | None] = mapped_column(Date)
+
+    # Fornecedor e do cabecalho da fatura, nao da linha. Morou em
+    # InvoicePartNumberItem ate a 0004, e a tela ja denunciava o erro lendo
+    # 'line_items[0].supplier' e escrevendo em todas as linhas de uma vez.
+    # Conferido no CIV, o documento mais dificil do corpus: 6 invoices de 6
+    # fornecedores, cada uma com um fornecedor so.
+    supplier: Mapped[str | None] = mapped_column(Text)
+
+    # As duas metades da chave de duplicata, normalizadas (shared/dedupe.py).
+    # Gravadas em coluna, e nao calculadas na consulta, porque o indice
+    # composto e o que evita varrer a tabela a cada documento novo.
+    invoice_number_key: Mapped[str | None] = mapped_column(String(128))
+    supplier_key: Mapped[str | None] = mapped_column(String(128))
+
+    # Aponta para a PRIMEIRA invoice com esta chave. Preenchido so na copia: a
+    # original e a referencia e nunca recebe marca.
+    duplicate_of_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("invoices.id", ondelete="SET NULL"), index=True
+    )
     # String(16), nao (3): a migracao 0003 alargou depois de um documento
     # trazer moeda fora do padrao ISO de tres letras.
     currency: Mapped[str | None] = mapped_column(String(16))
@@ -92,6 +116,11 @@ class Invoice(Base):
     )
 
     document: Mapped[Document] = relationship(back_populates="invoices")
+    # remote_side: auto-referencia, entao o SQLAlchemy precisa saber qual lado
+    # e o "um" -- sem isso ele le a FK como colecao e o relacionamento nao monta.
+    duplicate_of: Mapped[Invoice | None] = relationship(
+        "Invoice", remote_side="Invoice.id", lazy="joined"
+    )
     line_items: Mapped[list[InvoicePartNumberItem]] = relationship(
         back_populates="invoice", cascade="all, delete-orphan"
     )
@@ -120,7 +149,6 @@ class InvoicePartNumberItem(Base):
     domestic_freight: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     packaging: Mapped[str | None] = mapped_column(Text)
     exporter: Mapped[str | None] = mapped_column(Text)
-    supplier: Mapped[str | None] = mapped_column(Text)
     manufacturer: Mapped[str | None] = mapped_column(Text)
 
     invoice: Mapped[Invoice] = relationship(back_populates="line_items")

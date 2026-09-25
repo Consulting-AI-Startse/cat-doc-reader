@@ -1,4 +1,4 @@
-"""Confere _num e PART_NUMBER_RE contra os valores reais das 28 faturas.
+"""Confere _num, PART_NUMBER_RE e a chave de duplicata contra o corpus real.
 
 Rode de dentro de function\\:  & $PY ..\\check_rules.py
 """
@@ -6,7 +6,8 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "function"))
 sys.path.insert(0, os.getcwd())
 
-from pipeline.structurer import _num, PART_NUMBER_RE
+from pipeline.structurer import _num, _invoice_supplier, PART_NUMBER_RE
+from shared.dedupe import normalise_invoice_number, normalise_supplier
 
 falhas = []
 
@@ -58,6 +59,53 @@ rejeitar = ["0V3456",            # marcacao de end use, 6 caracteres
             "463-83444"]        # digito extra
 for pn in rejeitar:
     check(pn, bool(PART_NUMBER_RE.match(pn)), False)
+
+print("=== normalise_supplier: variantes do mesmo fornecedor tem de colidir ===")
+# Os seis fornecedores sao os do CIV MRKU6295556; o DOKTAS e o caso que motivou
+# a normalizacao (forma juridica turca em quatro pedacos).
+for grupo in [
+    ["DOKTAS DOKUMCULUK TIC. VE SAN. A.S.", "Doktas Dokumculuk Tic ve San AS",
+     "doktas dokumculuk ticaret ve sanayi a.s."],
+    ["Groeneveld-BEKA GmbH", "GROENEVELD BEKA GMBH", "Groeneveld  BEKA  gmbh"],
+    ["TECNORD s.r.l.", "TECNORD S.R.L", "Tecnord SRL"],
+    ["CATTINI e FIGLIO S.P.A.", "Cattini e Figlio SpA"],
+    ["Bosch Rexroth DSI S.A.S.", "BOSCH REXROTH DSI SAS"],
+    ["Dana Graziano S.r.l.", "DANA GRAZIANO SRL"],
+]:
+    chaves = {normalise_supplier(v) for v in grupo}
+    check(grupo[0][:24], len(chaves), 1)
+
+print("=== normalise_supplier: fornecedores distintos NAO podem colidir ===")
+distintos = ["Groeneveld-BEKA GmbH", "TECNORD s.r.l.", "ROTOTECH S.P.A.",
+             "CATTINI e FIGLIO S.P.A.", "Bosch Rexroth DSI S.A.S.",
+             "Dana Graziano S.r.l.", "DOKTAS DOKUMCULUK TIC. VE SAN. A.S."]
+check("7 fornecedores do CIV", len({normalise_supplier(v) for v in distintos}), 7)
+
+print("=== normalise_supplier: bordas ===")
+# 'CO' no meio e palavra, no fim e 'company' -- por isso o corte e so no fim.
+check("CO no meio", normalise_supplier("CO PRODUCTS LTD"), "COPRODUCTS")
+# Nome que e so forma juridica: chave ruim e melhor que chave nenhuma, porque
+# None desliga a checagem de duplicata para a fatura inteira.
+check("so forma juridica", normalise_supplier("S.A."), "SA")
+for v in ["", "   ", "...", None]:
+    check(repr(v), normalise_supplier(v), None)
+
+print("=== normalise_invoice_number ===")
+for v, e in [("739 /01", "73901"), ("AE28 518937", "AE28518937"),
+             ("26-2100870", "262100870"), ("cd970373103", "CD970373103"),
+             ("VE 3246", "VE3246"), ("", None), (None, None)]:
+    check(repr(v), normalise_invoice_number(v), e)
+
+print("=== _invoice_supplier: fornecedor da fatura sai das linhas ===")
+um = [{"supplier": "TECNORD s.r.l."}, {"supplier": "TECNORD s.r.l."}]
+check("3 linhas, 1 fornecedor", _invoice_supplier(um), ("TECNORD s.r.l.", None))
+check("nenhum fornecedor", _invoice_supplier([{"supplier": None}]), (None, None))
+# A premissa "uma invoice, um fornecedor" foi conferida no CIV, mas se quebrar
+# tem de virar nota -- e o aviso que manda o documento para revisao.
+misto = [{"supplier": "A LTDA"}, {"supplier": "B LTDA"}, {"supplier": "A LTDA"}]
+nome, aviso = _invoice_supplier(misto)
+check("2 fornecedores: vence o frequente", nome, "A LTDA")
+check("2 fornecedores: avisa", aviso is not None, True)
 
 print()
 if falhas:

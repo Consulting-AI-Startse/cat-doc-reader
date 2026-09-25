@@ -212,6 +212,31 @@ def _classify_part_number(pn, content: str):
     return text, None, None, "not_a_code", "part_number '%s' nao tem forma de codigo" % text
 
 
+def _invoice_supplier(kept: list):
+    """(fornecedor, aviso). O modelo responde por linha; a fatura tem um so.
+
+    Conferido no CIV, que tem 6 invoices de 6 fornecedores: nenhuma delas
+    mistura fornecedor entre as proprias linhas. Se algum dia misturar, esta
+    funcao e que descobre -- vence o mais frequente e a divergencia vira nota,
+    em vez de o valor ser escolhido em silencio.
+    """
+    nomes = [str(li.get("supplier")).strip() for li in kept
+             if li.get("supplier") and str(li.get("supplier")).strip()]
+    if not nomes:
+        return None, None
+
+    distintos = {}
+    for nome in nomes:
+        distintos[nome] = distintos.get(nome, 0) + 1
+    escolhido = max(distintos, key=lambda n: (distintos[n], -nomes.index(n)))
+    if len(distintos) == 1:
+        return escolhido, None
+    return escolhido, (
+        "linhas trazem %d fornecedores diferentes (%s); gravado o mais "
+        "frequente, '%s'" % (len(distintos), ", ".join(sorted(distintos)), escolhido)
+    )
+
+
 def _landed(kept: list, extra):
     """Rateia encargos de nivel de fatura por unidade. Nao sobrescreve nada.
 
@@ -513,9 +538,14 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
                 "manufacturer": li.get("manufacturer"),
             })
 
+        supplier, supplier_note = _invoice_supplier(kept)
+        if supplier_note:
+            issues.append("%s: %s" % (tag, supplier_note))
+
         invoices.append({
             "invoice_number": number,
             "invoice_date": inv.get("invoice_date"),
+            "supplier": supplier,
             "currency": inv.get("currency"),
             # Emitidos para que unit_price_landed seja auditavel: sem eles nao
             # se sabe de que encargo veio o rateio.
@@ -570,6 +600,7 @@ class MockStructurer(LLMStructurer):
             invoices.append({
                 "invoice_number": inv.get("invoice_number"),
                 "invoice_date": inv.get("invoice_date"),
+                "supplier": _invoice_supplier(line_items)[0],
                 "currency": inv.get("currency"),
                 "total": f"{total:.2f}" if line_items else None,
                 "line_items": line_items,

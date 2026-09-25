@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from shared.config import settings
 from shared.db import SessionLocal
+from shared.dedupe import find_original, normalise_invoice_number, normalise_supplier
 from shared.models import (
     Document,
     DocumentEvent,
@@ -101,10 +102,14 @@ def process_document(
         result = structurer.structure(extraction)
 
         doc.invoices.clear()
+        duplicates = []
         for inv in result.get("invoices", []):
             invoice = Invoice(
                 invoice_number=inv.get("invoice_number"),
                 invoice_date=_date(inv.get("invoice_date")),
+                supplier=inv.get("supplier"),
+                invoice_number_key=normalise_invoice_number(inv.get("invoice_number")),
+                supplier_key=normalise_supplier(inv.get("supplier")),
                 currency=inv.get("currency"),
                 total=_dec(inv.get("total")),
             )
@@ -122,11 +127,32 @@ def process_document(
                         domestic_freight=_dec(li.get("domestic_freight")),
                         packaging=li.get("packaging"),
                         exporter=li.get("exporter"),
-                        supplier=li.get("supplier"),
                         manufacturer=li.get("manufacturer"),
                     )
                 )
             doc.invoices.append(invoice)
+
+            # A duplicata e por INVOICE, nao por documento: um CIV traz seis
+            # faturas de seis fornecedores, e so uma delas pode ser repetida.
+            #
+            # O flush antes da busca e o que faz a deteccao funcionar DENTRO do
+            # mesmo documento: sem ele, a segunda copia de uma fatura repetida
+            # no proprio PDF nao encontraria a primeira, que ainda estaria so na
+            # memoria da sessao.
+            db.flush()
+            original = find_original(
+                db,
+                invoice_number_key=invoice.invoice_number_key,
+                supplier_key=invoice.supplier_key,
+                exclude_invoice_id=invoice.id,
+            )
+            if original is not None:
+                invoice.duplicate_of_id = original.id
+                duplicates.append(
+                    "invoice '%s' (%s) ja existe no documento %s; marcada como "
+                    "duplicada -- a primeira e a referencia"
+                    % (invoice.invoice_number, invoice.supplier, original.document_id)
+                )
 
         confidence = result.get("confidence")
         doc.extraction_confidence = confidence
@@ -138,7 +164,7 @@ def process_document(
         )
         doc.processed_at = datetime.now(timezone.utc)
 
-        validation = result.get("validation") or []
+        validation = list(result.get("validation") or []) + duplicates
         if validation:
             db.add(
                 DocumentEvent(
@@ -149,7 +175,10 @@ def process_document(
                 )
             )
 
-        ok = (confidence or 0) >= CONFIDENCE_THRESHOLD
+        # Duplicata sempre vai para revisao humana, por mais limpa que a
+        # extracao tenha saido: a confianca mede a leitura, nao o fato de a
+        # fatura ja ter entrado antes.
+        ok = (confidence or 0) >= CONFIDENCE_THRESHOLD and not duplicates
         doc.status = DocumentStatus.extracted if ok else DocumentStatus.needs_review
         db.add(DocumentEvent(document_id=doc.id, event_type=doc.status.value, actor="worker"))
     except Exception as exc:

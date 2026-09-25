@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.deps import get_db, get_storage
 from app.processing import enqueue_processing
+from shared.dedupe import find_original, normalise_invoice_number, normalise_supplier
 from shared.models import (
     Document,
     DocumentEvent,
@@ -60,18 +61,27 @@ def _serialize_line(li: InvoicePartNumberItem) -> dict:
         "domestic_freight": li.domestic_freight,
         "packaging": li.packaging,
         "exporter": li.exporter,
-        "supplier": li.supplier,
         "manufacturer": li.manufacturer,
     }
 
 
 def _serialize_invoice(inv: Invoice) -> dict:
+    # A tela precisa do documento de origem, nao so do id da fatura: a marca de
+    # duplicada so serve se o revisor conseguir abrir a original num clique.
+    original = inv.duplicate_of
     return {
         "id": str(inv.id),
         "invoice_number": inv.invoice_number,
         "invoice_date": inv.invoice_date,
+        "supplier": inv.supplier,
         "currency": inv.currency,
         "total": inv.total,
+        "duplicate_of": None if original is None else {
+            "invoice_id": str(original.id),
+            "document_id": str(original.document_id),
+            "invoice_number": original.invoice_number,
+            "supplier": original.supplier,
+        },
         "line_items": [_serialize_line(li) for li in inv.line_items],
     }
 
@@ -111,13 +121,13 @@ class LineIn(BaseModel):
     domestic_freight: str | float | None = None
     packaging: str | None = None
     exporter: str | None = None
-    supplier: str | None = None
     manufacturer: str | None = None
 
 
 class InvoiceIn(BaseModel):
     invoice_number: str | None = None
     invoice_date: str | None = None
+    supplier: str | None = None
     currency: str | None = None
     total: str | float | None = None
     line_items: list[LineIn] = []
@@ -242,10 +252,15 @@ def update_document(
         raise HTTPException(409, f"status atual ({doc.status.value}) não permite edição")
 
     doc.invoices.clear()
+    duplicates: list[str] = []
     for inv_in in payload.invoices:
+        supplier = _opt_str(inv_in.supplier)
         inv = Invoice(
             invoice_number=_opt_str(inv_in.invoice_number),
             invoice_date=_opt_date(inv_in.invoice_date),
+            supplier=supplier,
+            invoice_number_key=normalise_invoice_number(inv_in.invoice_number),
+            supplier_key=normalise_supplier(supplier),
             currency=_opt_str(inv_in.currency),
             total=_opt_decimal(inv_in.total),
         )
@@ -263,11 +278,38 @@ def update_document(
                     domestic_freight=_opt_decimal(li.domestic_freight),
                     packaging=_opt_str(li.packaging),
                     exporter=_opt_str(li.exporter),
-                    supplier=_opt_str(li.supplier),
                     manufacturer=_opt_str(li.manufacturer),
                 )
             )
         doc.invoices.append(inv)
+
+        # Recheca depois da edicao: corrigir o fornecedor ou o numero a mao muda
+        # a chave, e com ela a resposta. Uma duplicata que so aparece depois da
+        # correcao e exatamente o caso que a marcacao automatica perderia.
+        db.flush()
+        original = find_original(
+            db,
+            invoice_number_key=inv.invoice_number_key,
+            supplier_key=inv.supplier_key,
+            exclude_invoice_id=inv.id,
+        )
+        if original is not None:
+            inv.duplicate_of_id = original.id
+            duplicates.append(
+                "invoice '%s' (%s) ja existe no documento %s"
+                % (inv.invoice_number, inv.supplier, original.document_id)
+            )
+
+    if duplicates:
+        doc.status = DocumentStatus.needs_review
+        db.add(
+            DocumentEvent(
+                document_id=doc.id,
+                event_type="validation",
+                actor="human",
+                payload={"issues": duplicates},
+            )
+        )
 
     db.add(DocumentEvent(document_id=doc.id, event_type="edited", actor="human"))
     db.commit()

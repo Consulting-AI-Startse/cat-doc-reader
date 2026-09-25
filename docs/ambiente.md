@@ -79,6 +79,23 @@ CREATE DATABASE documentreader OWNER invoice;
 
 Depois, `alembic upgrade head` (o `start-local.sh` já faz).
 
+O `check_dedupe.py` **apaga todos os documentos** do banco para o qual apontar,
+porque a duplicata só é testável contra dados controlados. Crie uma base
+separada para ele e nunca rode contra a de desenvolvimento:
+
+```sql
+CREATE DATABASE dedupe_test OWNER invoice;   -- precisa de superusuário
+```
+
+```bash
+cd backend && DATABASE_URL=postgresql+psycopg://invoice:invoice@localhost:5432/dedupe_test \
+    ./.venv/bin/alembic upgrade head
+cd .. && DATABASE_URL=postgresql+psycopg://invoice:invoice@localhost:5432/dedupe_test \
+    ./backend/.venv/bin/python check_dedupe.py
+```
+
+No CI é o Postgres efêmero do job `backend`, que morre com o run.
+
 ## Portas
 
 | porta | serviço |

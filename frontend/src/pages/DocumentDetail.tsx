@@ -28,13 +28,13 @@ interface LineForm {
   domestic_freight: string;
   packaging: string;
   exporter: string;
-  supplier: string;
   manufacturer: string;
 }
 
 interface InvoiceForm {
   invoice_number: string;
   invoice_date: string;
+  supplier: string;
   currency: string;
   total: string;
   line_items: LineForm[];
@@ -46,6 +46,7 @@ function buildForm(d: Detail): InvoiceForm[] {
   return d.invoices.map((inv) => ({
     invoice_number: str(inv.invoice_number),
     invoice_date: str(inv.invoice_date),
+    supplier: str(inv.supplier),
     currency: str(inv.currency),
     total: str(inv.total),
     line_items: inv.line_items.map((li) => ({
@@ -60,7 +61,6 @@ function buildForm(d: Detail): InvoiceForm[] {
       domestic_freight: str(li.domestic_freight),
       packaging: str(li.packaging),
       exporter: str(li.exporter),
-      supplier: str(li.supplier),
       manufacturer: str(li.manufacturer),
     })),
   }));
@@ -72,6 +72,7 @@ function toPayload(invoices: InvoiceForm[]): DocumentUpdate {
     invoices: invoices.map((inv) => ({
       invoice_number: orNull(inv.invoice_number),
       invoice_date: orNull(inv.invoice_date),
+      supplier: orNull(inv.supplier),
       currency: orNull(inv.currency),
       total: orNull(inv.total),
       line_items: inv.line_items.map((l) => ({
@@ -86,7 +87,6 @@ function toPayload(invoices: InvoiceForm[]): DocumentUpdate {
         domestic_freight: orNull(l.domestic_freight),
         packaging: orNull(l.packaging),
         exporter: orNull(l.exporter),
-        supplier: orNull(l.supplier),
         manufacturer: orNull(l.manufacturer),
       })),
     })),
@@ -105,7 +105,6 @@ const emptyLine = (): LineForm => ({
   domestic_freight: "",
   packaging: "",
   exporter: "",
-  supplier: "",
   manufacturer: "",
 });
 
@@ -160,8 +159,8 @@ export function DocumentDetail() {
   function setInv(i: number, k: keyof Omit<InvoiceForm, "line_items">, v: string) {
     setForm((f) => (f ? f.map((inv, j) => (j === i ? { ...inv, [k]: v } : inv)) : f));
   }
-  // Aplica um valor a TODAS as linhas do invoice. Usado para Fornecedor e
-  // Exportador, que são por linha no modelo mas o usuário edita uma vez por invoice.
+  // Aplica um valor a TODAS as linhas do invoice. Restou só o Exportador, que
+  // continua por linha no modelo; o Fornecedor subiu para a invoice na 0004.
   function setAllLines(i: number, k: keyof LineForm, v: string) {
     setForm((f) =>
       f
@@ -201,7 +200,12 @@ export function DocumentDetail() {
   }
   function addInvoice() {
     setForm((f) =>
-      f ? [...f, { invoice_number: "", invoice_date: "", currency: "", total: "", line_items: [emptyLine()] }] : f
+      f
+        ? [
+            ...f,
+            { invoice_number: "", invoice_date: "", supplier: "", currency: "", total: "", line_items: [emptyLine()] },
+          ]
+        : f
     );
   }
 
@@ -260,7 +264,33 @@ export function DocumentDetail() {
 
             <div className="mt-5 space-y-5">
               {form.map((inv, i) => (
-                <div key={i} className="rounded-xl border border-neutral-200 bg-white p-4">
+                <div
+                  key={i}
+                  className={
+                    data.invoices[i]?.duplicate_of
+                      ? "rounded-xl border-2 border-amber-400 bg-amber-50/40 p-4"
+                      : "rounded-xl border border-neutral-200 bg-white p-4"
+                  }
+                >
+                  {/* A nota em validation nao basta: some no meio das outras e o
+                      revisor aprova a copia sem ver. A marca fica na propria
+                      invoice, com link para a original. */}
+                  {data.invoices[i]?.duplicate_of && (
+                    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-900">
+                      <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white">
+                        DUPLICADA
+                      </span>
+                      <span>
+                        Esta invoice já entrou antes, com o mesmo número e fornecedor.
+                      </span>
+                      <Link
+                        to={`/documents/${data.invoices[i]!.duplicate_of!.document_id}`}
+                        className="font-medium underline underline-offset-2 hover:text-amber-950"
+                      >
+                        Abrir a original
+                      </Link>
+                    </div>
+                  )}
                   <div className="mb-3 flex items-start justify-between gap-3">
                     <div className="grid flex-1 grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
                       {editable ? (
@@ -269,7 +299,7 @@ export function DocumentDetail() {
                           <FieldInput label="Data" type="date" value={inv.invoice_date} onChange={(v) => setInv(i, "invoice_date", v)} />
                           <FieldInput label="Moeda" value={inv.currency} onChange={(v) => setInv(i, "currency", v)} />
                           <FieldInput label="Total" value={inv.total} onChange={(v) => setInv(i, "total", v)} />
-                          <FieldInput label="Fornecedor" value={inv.line_items[0]?.supplier ?? ""} onChange={(v) => setAllLines(i, "supplier", v)} />
+                          <FieldInput label="Fornecedor" value={inv.supplier} onChange={(v) => setInv(i, "supplier", v)} />
                           <FieldInput label="Exportador" value={inv.line_items[0]?.exporter ?? ""} onChange={(v) => setAllLines(i, "exporter", v)} />
                         </>
                       ) : (
@@ -278,7 +308,7 @@ export function DocumentDetail() {
                           <ReadField label="Data" value={data.invoices[i]?.invoice_date} />
                           <ReadField label="Moeda" value={data.invoices[i]?.currency} />
                           <ReadField label="Total" value={money(data.invoices[i]?.total ?? null, data.invoices[i]?.currency ?? null)} />
-                          <ReadField label="Fornecedor" value={inv.line_items[0]?.supplier} />
+                          <ReadField label="Fornecedor" value={data.invoices[i]?.supplier} />
                           <ReadField label="Exportador" value={inv.line_items[0]?.exporter} />
                         </>
                       )}

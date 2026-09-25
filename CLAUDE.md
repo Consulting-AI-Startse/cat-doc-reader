@@ -261,9 +261,13 @@ corrompido" de um erro cifrado do `certutil` ou do `git apply` depois.
 ./start-local.sh --status
 ./stop-local.sh
 
-python check_rules.py        # 25/25
+python check_rules.py        # 75/75
 python check_structurer.py   # 14/14
 cd function && python -c "import function_app"
+
+# o unico check que precisa de banco (migrado, e APAGA os documentos dele)
+DATABASE_URL=postgresql+psycopg://invoice:invoice@localhost:5432/documentreader \
+    python check_dedupe.py   # 12/12
 ```
 
 O `import function_app` **antes de qualquer publish**. Já subimos um módulo que
