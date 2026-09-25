@@ -193,6 +193,55 @@ arrangement): **588** peças, e é onde caem os dois PNs conhecidos. Sobram 8
 casos de fronteira (`ENGINE GP` ×3, `ENGINE-PREP` ×2, `ENGINE SUPPORT` ×2,
 `ENGINE STALL.`) — `ENGINE GP` é o único duvidoso.
 
+### Regras alinhadas com o cliente (25/09)
+
+**1. `is_engine` vira coluna da lista de PN, não heurística nossa.** A CAT
+acrescenta uma terceira coluna booleana na `PN Liberados.xlsx`. Isso mata a
+ambiguidade medida acima (`ENGINE AR` x `ENGINE GP`) e tira a régua de nós, que
+não somos donos do dado.
+
+Sugerido ao cliente: chamar a coluna de **"requer serial"**, não "é motor". O
+contrato diz "MOTOR **E OUTROS (MAPEAR)**", e com o nome por intenção os tais
+"outros" entram depois só marcando mais linhas — sem migração e sem código.
+
+**2. Quem decide se o documento tem motor é uma consulta, não o LLM.** Entre o
+extractor (sem LLM) e o structurer (com LLM), varrer o `content` com o
+`PART_NUMBER_RE`, normalizar e consultar a tabela. Só então escolher entre o
+prompt normal e o de motor. Uma chamada de LLM, e a decisão é deterministica --
+perguntar ao modelo devolveria o julgamento probabilistico que a coluna existe
+para eliminar. Mesmo padrão do `_cat_invoice_numbers()`, que ja varre o
+`content` antes de decidir.
+
+Medido, e o custo e ruido: tabela com as 206.769 linhas ocupa **18 MB**, carrega
+em **0,42 s** (`COPY`) e a consulta de ~50 part numbers leva **0,43 ms** de ida e
+volta Python->PG->Python (`Index Scan` na PK). No CIV, 83 mil chars de OCR rendem
+**22 candidatos**; a pre-varredura leva 0,43 ms. A chamada do LLM leva segundos.
+O que nao se pode e carregar as 206 mil linhas na memoria da function.
+
+**3. Motor repete o MESMO part number, uma vez por serial.** Uma linha impressa
+com `6511308` e quantidade 3 vira **3 registros** de `6511308`, cada um com seu
+serial. Então `serial_number` e **coluna do item**, nao tabela propria -- a
+tabela separada so seria necessaria se um registro tivesse varios seriais.
+
+Dois corolarios:
+
+- **PN repetido numa fatura de motor e legitimo.** Qualquer checagem futura do
+  tipo "mesmo PN duas vezes e suspeito" estaria errada para motor.
+- **A expansao e nossa, nao do LLM.** O prompt de motor pede
+  `"serial_numbers": [...]` na linha e o `_normalise` explode. Pedir ao modelo
+  que ja devolva explodido o convida a inventar serial para fechar a
+  quantidade quando o OCR so leu dois.
+
+**Ponto aberto:** a expansao quebra a conferencia aritmetica do `_check_lines`,
+que soma os `amount` e compara com o total impresso -- 3 registros com o valor
+cheio dao 3x o total, e toda fatura de motor entraria em `needs_review` com erro
+falso. Proposto: cada registro expandido fica com **quantidade 1 e
+`amount` = `unit_price`**, o que preserva a soma. Aguardando confirmacao.
+
+Bordas, todas marcando e nunca completando: quantidade 3 com 2 seriais lidos ->
+expande em 2 e deixa nota; motor sem nenhum serial -> mantem 1 linha e deixa
+nota, porque serial e mandatorio para motor pelo contrato.
+
 **Pendência do próprio contrato:** o `SUBIR_FATURA_GA.xlsx` diz, em
 `Serial Number`, "MANDATÓRIO APENAS QUANDO FOR MOTOR **E OUTROS (MAPEAR)**".
 Então "não é motor ⇒ é PIN" vale hoje, mas as outras categorias ainda não foram
