@@ -12,6 +12,55 @@ estado do PR.
 
 ---
 
+## 2026-09-25 — leva 5: a instrução de migração estava errada · **PR não aberto**
+
+3 arquivos, por ZIP em base64 + script autocontido. Branch sugerida:
+`docs/migration-runs-as-admin`.
+
+**Aplicar a `0004` em produção custou cinco tentativas, e as três instruções
+que o repo dava levavam para o caminho que não funciona.** Os três erros, com a
+mensagem que cada um dá:
+
+| caminho | mensagem | por quê |
+|---|---|---|
+| `alembic upgrade head` no webssh | `must be owner of table invoices` | a MI tem só DML pela seção 2.4 do `DEPLOY.md` |
+| conectar da VM | `connection timeout` | o IP da VM não está na allow-list do firewall |
+| `az postgres flexible-server execute` | `'execute' is misspelled` | falta a extensão `rdbms-connect` |
+
+A rede passa do **container** e o privilégio é do **administrador**. O caminho é
+o webssh com token de admin, colado em **duas metades** — o webssh trunca a
+entrada em 4095 caracteres e o token tem ~4500. Colar inteiro corta a assinatura
+do JWT e o servidor responde `The access token has invalid format`, que não diz
+nada sobre truncamento.
+
+**O `env.py` não deve ser "corrigido".** Ele não injeta o token do Entra, e
+parece faltar simetria com o `shared/db.py`. Copiar o listener para lá põe o
+token da **Managed Identity** como senha, descarta o `PGPASSWORD` do admin e
+quebra exatamente o que passou a funcionar. A ausência agora está comentada
+como deliberada.
+
+**O `DEPLOY.md` da CAT era de 27/08**, do `init` — mesma história do
+`documents.py` na leva 4. Ainda mandava configurar `USE_REAL_SERVICES=false`,
+que é o que faz a function rodar mockada sem emitir erro, e apontava para o
+caminho antigo do repo. Entrou na leva, e `DEPLOY.md` e `scripts/` foram
+acrescentados à tabela de espelhamento do `CLAUDE.md`, onde nunca estiveram.
+
+Nenhum código executável muda: dois documentos e um comentário. O script não
+vendoriza nem roda os checks; confere o YAML do workflow e para por aí.
+
+| | |
+|---|---|
+| SHA-256 do `.b64` | `75678d5db4760a570e708499018b0b00184e3f8b01c63e4aefaa7fcd990c4861` |
+| SHA-256 do `.zip` | `6da7a8f582b5c2f89b39edebf9a6380af601951dfc94afc900225d8655b65863` |
+
+| arquivo | base | depois |
+|---|---|---|
+| `DEPLOY.md` | `11305cd34d6edaf09e6fcbbb285a7ae97730fa2f` | `b900994d` |
+| `aiagent-documentreader-infrastructure-azure/workflows/app-deploy.yml` | `995da844d4c71aa5cf48fc5347e3829e2a7a477c` | `463773b9` |
+| `backend/alembic/env.py` | `3d367a891e570f1a5455f6912e83d136a000494d` | `db4bf56d` |
+
+---
+
 ## 2026-09-25 — leva 4: duplicatas, regra 6 do prompt e catch-up · **merjado**
 
 15 arquivos, por ZIP em base64, com **script autocontido** no lugar do LEIA-ME
