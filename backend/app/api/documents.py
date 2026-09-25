@@ -87,7 +87,7 @@ def _serialize_invoice(inv: Invoice) -> dict:
     }
 
 
-def _extract_notes(doc: Document) -> tuple[list[str], list[dict]]:
+def _extract_notes(doc: Document) -> tuple[list[str], list[str], list[dict]]:
     """Notas de validacao e linhas descartadas, tiradas do raw_extraction.
 
     Nao ficam em tabela propria: sao saida do structurer, gravadas junto com a
@@ -98,7 +98,12 @@ def _extract_notes(doc: Document) -> tuple[list[str], list[dict]]:
     """
     bruto = doc.raw_extraction or {}
     estruturado = bruto.get("structured") or {}
-    notas = [str(v) for v in (estruturado.get("validation") or [])]
+    problemas = [str(v) for v in (estruturado.get("validation") or [])]
+    # Registro de calculo, nao defeito: rateio de encargo e linha descartada.
+    # Sao coisas que o revisor tem direito de auditar, mas que nao pedem
+    # revisao -- misturar as duas mandava para needs_review toda fatura com
+    # embalagem cobrada.
+    notas = [str(v) for v in (estruturado.get("notes") or [])]
     descartadas = []
     for inv in estruturado.get("invoices") or []:
         if not isinstance(inv, dict):
@@ -111,11 +116,11 @@ def _extract_notes(doc: Document) -> tuple[list[str], list[dict]]:
                 "amount": linha.get("amount"),
                 "reason": linha.get("discard_reason"),
             })
-    return notas, descartadas
+    return problemas, notas, descartadas
 
 
 def _serialize_document(doc: Document) -> dict:
-    notas, descartadas = _extract_notes(doc)
+    problemas, notas, descartadas = _extract_notes(doc)
     return {
         "id": str(doc.id),
         "status": doc.status.value,
@@ -125,7 +130,8 @@ def _serialize_document(doc: Document) -> dict:
         "extraction_confidence": doc.extraction_confidence,
         "error_message": doc.error_message,
         "created_at": doc.created_at,
-        "validation": notas,
+        "validation": problemas,
+        "notes": notas,
         "discarded_lines": descartadas,
         "invoices": [_serialize_invoice(i) for i in doc.invoices],
         "events": [

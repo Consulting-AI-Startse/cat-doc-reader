@@ -95,8 +95,11 @@ first = out["invoices"][0]["line_items"][0]
 check("unit_price segue o impresso", first["unit_price"], "388.46")
 check("unit_price_landed", first["unit_price_landed"], GABARITO_LANDED[0])
 check("amount_landed", first["amount_landed"], GABARITO_LANDED[1])
-check("nota de rateio na validation",
-      any("rateados" in v for v in out["validation"]), True)
+check("nota de rateio registrada", any("rateados" in v for v in out["notes"]), True)
+# A embalagem entra na conferencia: 90 x 388,46 + 603,00 = 35.564,40, que e o
+# total impresso. Enquanto ficava de fora, esta fatura acusava "nao fecha".
+check("e o total da CD970373103 fecha",
+      any("nao fecha" in v and "CD970373103" in v for v in out["validation"]), False)
 
 print("=== 5. encargos auditaveis na saida ===")
 check("'packaging_cost' emitido no invoice", "packaging_cost" in out["invoices"][0], True)
@@ -256,8 +259,12 @@ check("so o item real fica", [l["part_number"] for l in inv["line_items"]], ["65
 check("a linha descartada e preservada", len(inv["discarded_lines"]), 1)
 check("com o motivo junto",
       "nao tem forma de codigo" in (inv["discarded_lines"][0]["discard_reason"] or ""), True)
-check("e o descarte e anunciado",
-      any("sem part number descartada" in v for v in r["validation"]), True)
+check("o descarte e anunciado como NOTA",
+      any("sem part number descartada" in v for v in r["notes"]), True)
+# Descarte nao e defeito: se estiver errado, quem acusa e a aritmetica. Tratar
+# como defeito mandaria toda CIV de motor para revisao, porque todas trazem a
+# nota 'END USE'.
+check("e nao como problema", r["validation"], [])
 # O ganho do descarte ANTES da soma: sem a linha fantasma, a aritmetica fecha.
 check("a soma passa a fechar com o impresso",
       any("nao fecha" in v for v in r["validation"]), False)
@@ -289,6 +296,28 @@ frete = {"invoices": [{"invoice_number": "X", "total": "110.00", "line_items": [
 r = _normalise(frete, 0.95, content="463-8344")
 check("a linha sem codigo saiu", len(r["invoices"][0]["discarded_lines"]), 1)
 check("e a aritmetica acusa", any("nao fecha" in v for v in r["validation"]), True)
+
+print("=== 11. nota nao derruba o documento para revisao ===")
+# Enquanto tudo caia em 'validation', uma fatura lida sem um unico erro ia para
+# needs_review so por ter embalagem cobrada -- o rateio virava "defeito".
+limpa = {"invoices": [{"invoice_number": "CD970373103", "total": "35564.40",
+    "packaging_cost": "603.00", "line_items": [
+        {"part_number": "663-7238", "quantity": "90", "unit_price": "388.46",
+         "amount": "34961.40"}]}], "confidence": 0.95}
+r = _normalise(limpa, 0.95, content="663-7238 6637238")
+check("nenhum problema", r["validation"], [])
+check("mas o rateio fica registrado",
+      any("rateados" in n for n in r["notes"]), True)
+check("confianca intacta", r["confidence"], 0.95)
+
+print("=== 11b. defeito de verdade continua derrubando ===")
+quebrada = {"invoices": [{"invoice_number": "X", "total": "999.00", "line_items": [
+    {"part_number": "463-8344", "quantity": "1", "unit_price": "10.00", "amount": "10.00"}]}],
+    "confidence": 0.95}
+r = _normalise(quebrada, 0.95, content="463-8344")
+check("total que nao fecha e problema",
+      any("nao fecha" in v for v in r["validation"]), True)
+check("e derruba a confianca", r["confidence"], 0.50)
 
 print()
 if falhas:

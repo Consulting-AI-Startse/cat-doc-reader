@@ -270,29 +270,45 @@ export function DocumentDetail() {
                 via o documento em "Revisar" sem nenhuma pista do motivo. Com o
                 filtro de linhas sem part number isso virou defeito -- linha
                 sumindo da tabela sem explicacao. */}
-            {(data.validation.length > 0 || data.discarded_lines.length > 0) && (
+            {data.validation.length > 0 && (
               <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
                 <p className="text-sm font-medium text-amber-900">
-                  O que a extração marcou neste documento
+                  Problemas encontrados na extração
+                </p>
+                <ul className="mt-2 space-y-0.5 text-xs text-amber-800">
+                  {data.validation.map((v, k) => (
+                    <li key={k}>• {v}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {(data.notes.length > 0 || data.discarded_lines.length > 0) && (
+              <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+                {/* Cinza, nao ambar: isto nao e defeito, e o registro de como o
+                    numero foi montado. Na mesma cor dos problemas, o revisor
+                    perde tempo procurando erro onde nao ha. */}
+                <p className="text-sm font-medium text-neutral-700">
+                  Decisões da extração neste documento
                 </p>
 
                 {data.discarded_lines.length > 0 && (
                   <div className="mt-3">
-                    <p className="text-xs font-medium text-amber-900">
+                    <p className="text-xs font-medium text-neutral-600">
                       {data.discarded_lines.length} linha(s) removida(s) por não ter part number:
                     </p>
                     <table className="mt-1.5 w-full text-left text-xs">
-                      <tbody className="divide-y divide-amber-200/70">
+                      <tbody className="divide-y divide-neutral-200">
                         {data.discarded_lines.map((l, k) => (
                           <tr key={k}>
-                            <td className="py-1 pr-3 font-mono text-amber-900">
+                            <td className="py-1 pr-3 font-mono text-neutral-700">
                               {l.part_number || EMPTY}
                             </td>
-                            <td className="py-1 pr-3 text-amber-800">{l.description || EMPTY}</td>
-                            <td className="py-1 pr-3 text-right tabular text-amber-800">
+                            <td className="py-1 pr-3 text-neutral-700">{l.description || EMPTY}</td>
+                            <td className="py-1 pr-3 text-right tabular text-neutral-700">
                               {l.amount || EMPTY}
                             </td>
-                            <td className="py-1 text-amber-700">{l.reason}</td>
+                            <td className="py-1 text-neutral-500">{l.reason}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -300,9 +316,9 @@ export function DocumentDetail() {
                   </div>
                 )}
 
-                {data.validation.length > 0 && (
-                  <ul className="mt-3 space-y-0.5 text-xs text-amber-800">
-                    {data.validation.map((v, k) => (
+                {data.notes.length > 0 && (
+                  <ul className="mt-3 space-y-0.5 text-xs text-neutral-600">
+                    {data.notes.map((v, k) => (
                       <li key={k}>• {v}</li>
                     ))}
                   </ul>

@@ -71,8 +71,10 @@ export interface DocumentDetail {
   extraction_confidence: number | null;
   error_message: string | null;
   created_at: string;
-  /** Por que o documento caiu em needs_review. Antes só existia no /raw. */
+  /** Defeitos: é isto que derruba o documento para needs_review. */
   validation: string[];
+  /** Registro de cálculo (rateio, linha descartada). Não pede revisão. */
+  notes: string[];
   discarded_lines: DiscardedLine[];
   invoices: Invoice[];
   events: DocumentEvent[];

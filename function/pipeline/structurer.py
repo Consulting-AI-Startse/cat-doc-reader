@@ -538,6 +538,7 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None):
     kept = []
     descartadas = []
     issues = []
+    notas = []
     running = 0.0
     exigem_serial = exigem_serial or set()
 
@@ -585,13 +586,17 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None):
         kept.extend(registros)
 
     if descartadas:
-        issues.append(
+        # Registro, nao problema: se o descarte estiver errado, quem acusa e a
+        # aritmetica -- a soma para de fechar e AQUELA nota manda para revisao.
+        # Tratar o descarte como problema mandaria toda CIV de motor para
+        # revisao, porque todas trazem a nota 'END USE'.
+        notas.append(
             "%s: %d linha(s) sem part number descartada(s): %s"
             % (tag, len(descartadas),
                "; ".join(str(d.get("part_number") or "(vazio)") for d in descartadas))
         )
 
-    return kept, issues, running, descartadas
+    return kept, issues, notas, running, descartadas
 
 
 def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
@@ -608,6 +613,12 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
     unit_price_landed, sem tocar em unit_price.
     """
     issues = []
+    # Duas listas de proposito. 'issues' sao defeitos e derrubam a confianca
+    # para REVIEW_CONFIDENCE; 'notas' sao decisoes de calculo que o revisor
+    # tem direito de auditar mas que nao pedem revisao. Enquanto tudo caia em
+    # 'issues', uma fatura lida sem um erro ia para needs_review so por ter
+    # embalagem cobrada.
+    notas = []
     entries = [i for i in (payload.get("invoices") or []) if isinstance(i, dict)]
     skipped = len(payload.get("invoices") or []) - len(entries)
     if skipped:
@@ -644,7 +655,7 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
         tag = "invoice[%d]" % index
 
         raw_lines = [li for li in (inv.get("line_items") or []) if isinstance(li, dict)]
-        kept, line_issues, running, descartadas = _check_lines(
+        kept, line_issues, line_notes, running, descartadas = _check_lines(
             tag, raw_lines, content, exigem_serial)
         issues.extend(line_issues)
 
@@ -671,24 +682,30 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
 
         freight = _num(inv.get("freight"))
         reported = _num(inv.get("total"))
-        computed = running + (freight or 0.0)
+        packaging_cost = _num(inv.get("packaging_cost"))
+        # A embalagem entra na conferencia porque o total impresso a inclui: na
+        # CD970373103 sao 90 x 388,46 = 34.961,40 mais 603,00, e o documento
+        # imprime 35.564,40. Enquanto ela ficava de fora, TODA fatura com
+        # embalagem cobrada acusava "total nao fecha" -- falso positivo que
+        # mandava para revisao um documento lido sem um erro.
+        computed = running + (freight or 0.0) + (packaging_cost or 0.0)
 
         if reported is None:
             total = ("%.2f" % computed) if kept else None
-            issues.append("%s: total nao informado, usando soma das linhas + frete" % tag)
+            issues.append("%s: total nao informado, usando soma das linhas + encargos" % tag)
         else:
             total = "%.2f" % reported
             if not _close(reported, computed):
                 issues.append(
-                    "%s: total impresso %.2f nao fecha com soma das linhas + frete %.2f"
-                    % (tag, reported, computed)
+                    "%s: total impresso %.2f nao fecha com soma das linhas + "
+                    "frete + embalagem %.2f" % (tag, reported, computed)
                 )
 
-        packaging_cost = _num(inv.get("packaging_cost"))
         extra = (packaging_cost or 0.0) + (freight or 0.0)
         per_unit = _landed(kept, extra)
+        notas.extend(line_notes)
         if per_unit:
-            issues.append(
+            notas.append(
                 "%s: encargos %.2f rateados a %.4f por unidade em "
                 "unit_price_landed (unit_price segue como impresso)"
                 % (tag, extra, per_unit)
@@ -750,8 +767,11 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
         confidence = min(confidence, REVIEW_CONFIDENCE)
         for problem in issues:
             logger.warning("VALIDACAO: %s", problem)
+    for nota in notas:
+        logger.info("NOTA: %s", nota)
 
-    return {"invoices": invoices, "confidence": confidence, "validation": issues}
+    return {"invoices": invoices, "confidence": confidence,
+            "validation": issues, "notes": notas}
 
 
 class MockStructurer(LLMStructurer):
