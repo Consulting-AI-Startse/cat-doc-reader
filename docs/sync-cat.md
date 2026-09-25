@@ -55,6 +55,19 @@ divergência que o `CLAUDE.md` acompanha se encerra.
 - **Catch-up:** `shared/shared/config.py` e `backend/app/processing.py`, sem
   relação com as duas features — só atraso acumulado.
 
+**Duas correções no script depois da primeira tentativa na VM**, que chegou
+verde até o passo 7 e quebrou no 8:
+
+- **Faltava vendorizar o `shared`.** `function/shared/` é gerado e gitignored,
+  então não viaja na leva; o da VM era de antes e não tinha o `dedupe.py` que o
+  `check_rules.py` desta leva passou a importar. O script agora roda o
+  `scripts/build.ps1` antes dos testes.
+- **O wrapper de comando nativo valia só para o `git`.** O `python` também
+  escreve em stderr (traceback), e sob `ErrorActionPreference='Stop'` o
+  PowerShell não só aborta como **engole a mensagem** — da VM só voltou a linha
+  `Traceback (most recent call last):`, sem o erro. Agora todo executável passa
+  pelo mesmo wrapper e a saída é impressa quando falha.
+
 **Atenção no deploy:** traz migração. O job `migrate` do `app-deploy.yml` falha
 de propósito; `alembic upgrade head` é manual, pelo webssh do fastapi.
 

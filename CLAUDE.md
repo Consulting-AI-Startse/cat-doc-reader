@@ -361,6 +361,14 @@ Duas consequências práticas:
 `scripts/build.sh` a partir de `shared/shared/`. Editar a cópia funciona até o
 próximo build sobrescrever em silêncio.
 
+**E por serem geradas, elas não viajam na leva — ficam velhas do outro lado.**
+Toda leva que toca `shared/shared/` tem de rodar o build na CAT logo depois de
+aplicar, antes de qualquer teste: lá é `scripts/build.ps1`, o equivalente
+Windows. A leva 4 aprendeu isso do jeito ruim — o `check_rules.py` passou a
+importar `shared.dedupe`, o `function/shared/` da VM era de antes e não tinha
+esse módulo, e o `ModuleNotFoundError` não diz nada sobre vendorização. O
+script de aplicação faz esse passo desde então.
+
 **O `shared/` roda em 3.11, mesmo com o backend em 3.14.** A Function App está
 em 3.11 (a 3.14 ainda não chegou lá) e o `shared` é implantado nas duas
 aplicações: sintaxe que só exista em 3.14 passa no backend e **quebra no import
