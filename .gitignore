@@ -38,3 +38,7 @@ _to_delete/
 
 # Estado do ambiente local (pids e logs do start-local.sh)
 .local/
+
+# Azurite escreve estes na raiz quando roda sem --location; sao estado local.
+__azurite_db_*.json
+__blobstorage__/
