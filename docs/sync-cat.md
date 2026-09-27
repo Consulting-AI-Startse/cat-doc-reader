@@ -12,6 +12,91 @@ estado do PR.
 
 ---
 
+## 2026-09-27 — leva 6: lista de PN, serial number e conserto do CD · **PR não aberto**
+
+26 arquivos (8 novos), por ZIP em base64 + script autocontido. Branch sugerida:
+`feat/part-numbers-and-serial`.
+
+**O que vai:**
+
+- **Lista de PN liberados** — tabela, import CSV e tela de configuração com a
+  regra de quem exige serial. Medido: 206.769 linhas em 18 MB, consulta em
+  0,43 ms, recálculo em 0,81 s. `ENGINE` casaria 910 peças (quase todas
+  acessório); `ENGINE AR` casa 588 sem falso positivo — por isso a tela mostra
+  prévia antes de salvar.
+- **Serial number** — um registro por serial, com quantidade 1 e
+  `amount` = `unit_price`, o que preserva a soma contra o total impresso.
+  Verificado contra o modelo, 3 rodadas sobre a fatura de motor 93872204: 3/3
+  com os sete seriais.
+- **Gate de linhas sem part number**, antes da conferência aritmética, com as
+  descartadas preservadas e visíveis na tela.
+- **Defeito separado de registro de cálculo** — nota de rateio não derruba mais
+  o documento para `needs_review`. E a embalagem entrou na conferência: um
+  falso positivo que estava travado por teste.
+- **Documento rejeitado deixa de valer como referência de duplicata.**
+- **Conserto do CD** (ver abaixo).
+
+**O smoke test batia numa restrição de rede.** Os dois App Services têm
+`ipSecurityRestrictionsDefaultAction: Deny` e liberam só as redes da
+Caterpillar; o runner do GitHub não está em nenhuma. O `/health` de lá devolve
+403 com a página "blocked your access" — a restrição, não a aplicação. O job
+gastava 10 minutos nisso e derrubava o deploy de um backend saudável: da VM o
+mesmo `/health` dá 200. O diagnóstico anterior ("cold start de 5 minutos") era
+falso pelo mesmo motivo. Agora o 403 é reconhecido na primeira tentativa,
+explicado no resumo do job, e não derruba o deploy; erro real continua
+derrubando. **O SCM não herda essas regras**, e é por isso que publicar
+funciona e verificar não.
+
+**O `check_parts.py` teria quebrado o CI.** Ele testava o relatório de import
+pelo `TestClient` do FastAPI, que exige `httpx` — presente aqui porque a venv
+arrasta o modo local, ausente no `requirements.txt` do backend. A leitura do
+CSV virou função pura em `shared/parts.py` e o teste chama direto. Conferido
+numa venv limpa com apenas o `requirements.txt`.
+
+**Atenção: `rbac.bicep` diverge.** A VM tem `6a925b49…`, que não existe em
+commit nenhum deste repo — é trabalho feito direto lá. **Não está nesta leva**,
+então não há risco de sobrescrita, mas a nossa cópia está velha e precisa ser
+trazida de lá antes que alguém a edite aqui.
+
+**Atenção no deploy:** traz **duas** migrações (`0005` e `0006`). O job
+`migrate` falha de propósito; rodar como administrador do Entra pelo webssh.
+
+| | |
+|---|---|
+| SHA-256 do `.b64` | `fcc26c8f0a6c9f448c7764fbb53c3f68b3ea9b7ae8f5b24979e507799d9c5ddb` |
+| SHA-256 do `.zip` | `3c3a91d575b5a665a3a95b9de5ab42a6dbf45fe1410845d2fcfaf7959cd32ba7` |
+
+| arquivo | base | depois |
+|---|---|---|
+| `DEPLOY.md` | `b900994db7c9` | `7ef20d49e42f` |
+| `aiagent-documentreader-infrastructure-azure/workflows/app-ci.yml` | `67e193ed5711` | `4bcaa0bd3ed8` |
+| `aiagent-documentreader-infrastructure-azure/workflows/app-deploy.yml` | `463773b96950` | `9dae22a744b0` |
+| `backend/alembic/versions/0002_packaging_text.py` | `dffb9c3bb07a` | `74ab9ad54cd4` |
+| `backend/alembic/versions/0005_released_part_numbers.py` | **novo** | `95de84b6e57e` |
+| `backend/alembic/versions/0006_serial_number_on_item.py` | **novo** | `e4605b137a6b` |
+| `backend/app/api/documents.py` | `21d2d882ee1f` | `97ef00df3bb9` |
+| `backend/app/api/parts.py` | **novo** | `efe85da4ca8f` |
+| `backend/app/main.py` | `1752971b4d13` | `ac4f10de8b2d` |
+| `check_dedupe.py` | `d96bf376a54b` | `28c8599da713` |
+| `check_parts.py` | **novo** | `6ad902b84a22` |
+| `check_structurer.py` | `cd7809898c18` | `9eaa4c8bd8b1` |
+| `frontend/src/api/client.ts` | `fa50a9057233` | `4516ed6a85ab` |
+| `frontend/src/api/parts.ts` | **novo** | `22fc74500fcc` |
+| `frontend/src/components/AppShell.tsx` | `dd493504af4a` | `715e9f3d73c6` |
+| `frontend/src/components/FileUpload.tsx` | `9b15e9513883` | `ae2d7ef2536a` |
+| `frontend/src/main.tsx` | `3be1b15f2b73` | `f3292e4890a1` |
+| `frontend/src/pages/DocumentDetail.tsx` | `e6c5434e18ab` | `96c5170b670e` |
+| `frontend/src/pages/PartNumbers.tsx` | **novo** | `5284ef354cc1` |
+| `frontend/src/types/document.ts` | `6ed2264de618` | `dcdfaa893f71` |
+| `frontend/src/types/parts.ts` | **novo** | `b0184e2ee729` |
+| `function/doc_worker.py` | `799befdd6d8a` | `e9e2fe9f1539` |
+| `function/pipeline/structurer.py` | `65fcea67e15e` | `f4f965a50fef` |
+| `shared/shared/dedupe.py` | `3ef88c95396a` | `af7646b6ddd4` |
+| `shared/shared/models.py` | `531a1f7e0856` | `f2214a63412e` |
+| `shared/shared/parts.py` | **novo** | `bd6ff2dd6030` |
+
+---
+
 ## 2026-09-25 — leva 5: a instrução de migração estava errada · **merjado**
 
 3 arquivos, por ZIP em base64 + script autocontido. Branch sugerida:
