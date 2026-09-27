@@ -452,6 +452,16 @@ partes: `printf '%s' "$T" | awk -F. '{print NF}'` tem de dar **3**.
 admin do Entra. E a VM nao alcanca o Postgres (fora da allow-list), entao o
 unico caminho e o webssh com token de administrador.
 
+**O App Service so aceita as redes da CAT, e o runner do GitHub nao e uma
+delas.** Acao padrao `Deny`; as `Allow` sao Cat_Amsterdam, Cat_Chicago,
+Cat_Dublin, Cat_Peoria_Firewall, Cat_Plano, Cat_Singapore e os ExpressRoute
+NAT. O `/health` do runner devolve 403 com a pagina "blocked your access" --
+que e a restricao, nao a aplicacao. Isso derrubou o deploy do backend por dias
+com um app saudavel, e gerou um diagnostico falso ("cold start de 5 minutos")
+porque o curl manual de conferencia saia da rede da CAT. **O SCM nao herda
+essas regras**, e e por isso que publicar funciona e verificar nao: sao portas
+diferentes. Ver a secao propria no `DEPLOY.md`.
+
 **Um run de infraestrutura pode apagar as app settings.** O `functions.json`
 monta `siteConfig.appSettings` como um `concat(...)` fechado, então reprovisionar
 zera o que foi configurado por fora. Depois de qualquer run de infra, reconfira

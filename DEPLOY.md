@@ -305,6 +305,42 @@ fastapi e a function depois — eles carregaram o modelo antigo na memória.
 
 ---
 
+## O App Service só aceita as redes da Caterpillar
+
+Medido em 27/09, nos dois App Services:
+
+```
+ipSecurityRestrictionsDefaultAction: Deny
+```
+
+As regras `Allow` são as redes corporativas — `Cat_Amsterdam`, `Cat_Chicago`,
+`Cat_Dublin`, `Cat_Peoria_Firewall`, `Cat_Plano`, `Cat_Singapore`,
+`Cat_ExpressRoute_NAT`, `MS_ExpressRoute_NAT` — mais uma `Deny all` explícita.
+O backend tem 32 regras a mais, `aiagent-documentreader-pov-fr-*`, que são os
+IPs de saída do App Service do frontend, para ele alcançar o backend.
+
+**Consequência prática: o runner do GitHub não alcança `/health`.** Ele recebe
+403 com a página `Web App - Unavailable / blocked your access`, que é a
+restrição respondendo — não a aplicação. Isso derrubou o job de deploy do
+backend durante dias, com dez minutos de espera inútil, enquanto a aplicação
+estava perfeitamente de pé: da VM o mesmo `/health` devolve 200.
+
+O diagnóstico anterior — "5 minutos não bastam para o cold start" — era falso
+pelo mesmo motivo: o `curl` manual que respondia 200 logo depois saía da rede
+da CAT, não do runner.
+
+**O SCM não herda essas regras** (`scmIpSecurityRestrictionsUseMain: false`), e
+é por isso que o `az webapp deploy` funciona do runner enquanto o site público
+não responde. Publicar e verificar passam por portas diferentes.
+
+Para verificar o backend, de dentro da rede da CAT:
+
+```powershell
+curl.exe -s -o NUL -w "%{http_code}" https://aiagent-documentreader-pov-fastapi-appservice.azurewebsites.net/health
+```
+
+Easy Auth está **desligado** nos dois apps, então 403 nunca é autenticação.
+
 ## Troubleshooting rápido
 
 - **Logs backend:** `az webapp log tail -g $RG -n $APP`
@@ -321,6 +357,8 @@ fastapi e a function depois — eles carregaram o modelo antigo na memória.
   `az postgres flexible-server microsoft-entra-admin`.
 - **`'execute' is misspelled`:** `az postgres flexible-server execute` precisa da
   extensão `rdbms-connect`, que não está instalada na VM.
+- **403 com "blocked your access":** é a restrição de rede, não a aplicação.
+  Ver a seção acima. Do runner do GitHub é o esperado.
 - **`az webapp deploy` sem permissão:** confirme os direitos Web; você já tem
   `az webapp ssh`, deploy costuma vir junto. Se faltar, é pedido à plataforma.
 

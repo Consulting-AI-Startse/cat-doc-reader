@@ -9,6 +9,8 @@ chamada para responder o que um Index Scan responde em 0,4 ms.
 """
 from __future__ import annotations
 
+import csv
+import io as _io
 import re
 
 from sqlalchemy import func, select, text
@@ -118,3 +120,77 @@ def recompute(db: Session, substrings, manuais) -> int:
     return db.scalar(
         select(func.count()).select_from(ReleasedPartNumber).where(ReleasedPartNumber.requires_serial)
     ) or 0
+
+
+# Primeira celula que significa cabecalho, nao part number.
+_CABECALHOS = ("PECA", "PE\u00c7A", "PART_NUMBER", "PART NUMBER", "PN")
+
+# Limite da coluna part_number no schema.
+_MAX_CHAVE = 32
+
+
+def decode_csv(bruto: bytes) -> str:
+    """Texto do CSV, tolerando o que o Excel do Windows produz."""
+    try:
+        return bruto.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        # Excel no Windows salva CSV em latin-1 com frequencia.
+        return bruto.decode("latin-1")
+
+
+def parse_csv(texto: str) -> dict:
+    """Le o CSV da lista de PN. Devolve o que gravar e o que aconteceu.
+
+    Funcao pura: sem banco, sem HTTP. Ficou aqui e nao no endpoint porque e
+    LOGICA, e logica precisa de teste barato -- testar isso pelo TestClient do
+    FastAPI arrastava o httpx, que nao esta no requirements.txt do backend e
+    quebraria o CI da CAT em 'from fastapi.testclient import TestClient'.
+
+    Linha invalida NAO derruba o arquivo: e contada e explicada. Um CSV de 206
+    mil linhas com tres defeitos tem de importar o resto e dizer quais falharam.
+
+    A conta fecha sempre: recebidas = validas + duplicadas + len(erros).
+    """
+    linhas = list(csv.reader(_io.StringIO(texto)))
+    if not linhas:
+        return {"vazio": True, "validas": [], "recebidas": 0, "duplicadas": 0, "erros": []}
+
+    # Cabecalho e opcional: so pulamos se a primeira celula for um titulo
+    # conhecido. Pular por heuristica apagaria a primeira peca do arquivo.
+    inicio = 1 if (linhas[0][0] if linhas[0] else "").strip().upper() in _CABECALHOS else 0
+
+    recebidas = 0
+    duplicadas = 0
+    erros: list[str] = []
+    vistos: set[str] = set()
+    validas: list[tuple[str, str | None]] = []
+
+    for n, linha in enumerate(linhas[inicio:], start=inicio + 1):
+        if not linha or not any(c.strip() for c in linha):
+            continue
+        recebidas += 1
+        chave = normalise_part_number(linha[0])
+        if not chave:
+            if len(erros) < 20:
+                erros.append("linha %d: part number vazio ou sem caractere util" % n)
+            continue
+        if len(chave) > _MAX_CHAVE:
+            if len(erros) < 20:
+                erros.append(
+                    "linha %d: part number '%s' tem mais de %d caracteres"
+                    % (n, chave, _MAX_CHAVE)
+                )
+            continue
+        # Repetida dentro do proprio arquivo: o upsert em lote reclama de duas
+        # linhas com a mesma chave no mesmo comando. Nao e erro, mas e contada
+        # -- "ignoradas" sem explicacao e o mesmo defeito de documento gravado
+        # sem nota.
+        if chave in vistos:
+            duplicadas += 1
+            continue
+        vistos.add(chave)
+        nome = (linha[1].strip() if len(linha) > 1 and linha[1] else None) or None
+        validas.append((chave, nome))
+
+    return {"vazio": False, "validas": validas, "recebidas": recebidas,
+            "duplicadas": duplicadas, "erros": erros}

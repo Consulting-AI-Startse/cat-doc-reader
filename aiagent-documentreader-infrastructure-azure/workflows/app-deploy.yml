@@ -305,14 +305,22 @@ jobs:
             -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice" \
             --startup-file "python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
-      # 5 minutos nao bastam: o Oryx roda o pip install no servidor e o
-      # container ainda faz cold start depois. Medido em 22/09 -- o job falhou
-      # e o /health respondeu 200 no primeiro curl manual, logo em seguida.
+      # O App Service so aceita as redes da Caterpillar: a acao padrao e Deny e
+      # as 11 regras Allow sao Cat_Amsterdam, Cat_Chicago, Cat_Dublin,
+      # Cat_Peoria_Firewall, Cat_Plano, Cat_Singapore e os ExpressRoute NAT
+      # (mais 32 dos IPs de saida do proprio frontend). Runner hospedado pelo
+      # GitHub nao esta em nenhuma -- e por desenho, nao por engano.
       #
-      # O codigo de cada tentativa e impresso: a versao anterior engolia o
-      # status em /dev/null, entao a falha nao distinguia "ainda subindo" de
-      # "503 permanente" nem de "nome errado". Falha muda e o modo de falha que
-      # este repo combate.
+      # Por isso o /health daqui devolve 403 com a pagina "blocked your access",
+      # e nao ha espera que resolva. O smoke test anterior gastava 10 minutos
+      # batendo nisso e derrubava o job de um deploy saudavel. Pior, a conclusao
+      # registrada na epoca -- "5 minutos nao bastam para o cold start" -- era
+      # falsa: o curl manual que respondeu 200 logo em seguida saiu da rede da
+      # CAT, nao do runner.
+      #
+      # Entao: orcamento curto, e o 403 da plataforma e reconhecido em vez de
+      # confundido com aplicacao fora do ar. Erro de verdade (5xx, conexao
+      # recusada, timeout) continua derrubando o job.
       - name: Smoke test
         run: |
           host="${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice"
@@ -321,16 +329,54 @@ jobs:
           dom=$(printf '%s.%s' azurewebsites net)
           url="https://${host}.${dom}/health"
           code=000
-          for i in $(seq 1 40); do
+          for i in $(seq 1 8); do
             code=$(curl -s -m 20 -o /tmp/health.out -w '%{http_code}' "$url" || echo 000)
-            echo "  tentativa $i/40: $code"
+            echo "  tentativa $i/8: $code"
             [ "$code" = "200" ] && { echo "health OK"; exit 0; }
+            # 403 e a restricao de rede respondendo, nao a aplicacao. Insistir
+            # nao muda nada -- ela responde igual na primeira e na quadragesima.
+            if [ "$code" = "403" ] && grep -q "blocked your access" /tmp/health.out 2>/dev/null; then
+              break
+            fi
             sleep 15
           done
-          echo "::error::/health nao respondeu 200 em 10 minutos (ultimo codigo: $code)"
+
+          if [ "$code" = "403" ] && grep -q "blocked your access" /tmp/health.out 2>/dev/null; then
+            {
+              echo "### Smoke test nao pode rodar daqui"
+              echo
+              echo "O App Service devolveu **403 da restricao de rede**, nao da aplicacao."
+              echo "A acao padrao e \`Deny\` e so as redes da Caterpillar estao liberadas;"
+              echo "o runner do GitHub nao esta em nenhuma delas, por desenho."
+              echo
+              echo "**Isto nao diz nada sobre a saude do deploy.** Para verificar, de"
+              echo "dentro da rede da CAT (a VM serve):"
+              echo
+              echo '```'
+              echo "curl.exe -s -o NUL -w \"%{http_code}\" https://${host}.${dom}/health"
+              echo '```'
+              echo
+              echo "Esperado: 200."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::/health nao e verificavel do runner (403 da allow-list); confira da rede da CAT"
+            exit 0
+          fi
+
+          echo "::error::/health nao respondeu 200 (ultimo codigo: $code)"
           echo "--- ultimo corpo recebido ---"
           head -c 2000 /tmp/health.out || true
           exit 1
+
+      # O que AINDA da para afirmar do runner, sem depender de rede: o site esta
+      # habilitado e rodando. Nao prova que a aplicacao subiu -- prova que o
+      # App Service nao ficou parado ou desabilitado pelo deploy.
+      - name: Estado do site
+        run: |
+          estado=$(az webapp show -g "${{ env.RESOURCEGROUPNAME }}" \
+            -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-fastapi-appservice" \
+            --query state -o tsv)
+          echo "estado do site: $estado"
+          [ "$estado" = "Running" ] || { echo "::error::site nao esta Running"; exit 1; }
 
   # ==========================================================================
   # Function
