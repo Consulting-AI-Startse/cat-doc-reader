@@ -1,5 +1,3 @@
-import csv
-import io
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -73,40 +71,24 @@ async def import_csv(
     if not (file.filename or "").lower().endswith(".csv"):
         raise HTTPException(422, "envie um arquivo .csv")
 
-    bruto = await file.read()
-    try:
-        texto = bruto.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        # Excel no Windows salva CSV em latin-1 com frequencia.
-        texto = bruto.decode("latin-1")
-
-    leitor = csv.reader(io.StringIO(texto))
-    linhas = list(leitor)
-    if not linhas:
+    # A leitura do CSV mora em shared/parts.py: e logica pura e merece teste
+    # barato. Testar isto pelo TestClient do FastAPI arrastava o httpx, que nao
+    # esta no requirements.txt do backend e quebraria o CI da CAT.
+    lido = parts_lib.parse_csv(parts_lib.decode_csv(await file.read()))
+    if lido["vazio"]:
         raise HTTPException(422, "arquivo vazio")
 
-    # Cabecalho e opcional: se a primeira celula normalizar para algo que nao
-    # parece part number, tratamos como titulo.
-    inicio = 0
-    primeira = (linhas[0][0] if linhas[0] else "").strip().upper()
-    if primeira in ("PECA", "PEÇA", "PART_NUMBER", "PART NUMBER", "PN"):
-        inicio = 1
-
-    batch = "%s @ %s" % (
-        file.filename, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
-    )
-    recebidas = 0
-    duplicadas = 0
-    erros: list[str] = []
-    vistos: set[str] = set()
-    lote: list[dict] = []
+    agora = datetime.now(timezone.utc)
+    batch = "%s @ %s" % (file.filename, agora.strftime("%Y-%m-%d %H:%M"))
     gravadas = 0
 
-    def descarrega():
-        nonlocal lote, gravadas
-        if not lote:
-            return
-        stmt = insert(ReleasedPartNumber).values(lote)
+    for i in range(0, len(lido["validas"]), _LOTE):
+        fatia = [
+            {"part_number": chave, "name": nome,
+             "imported_at": agora, "import_batch": batch}
+            for chave, nome in lido["validas"][i:i + _LOTE]
+        ]
+        stmt = insert(ReleasedPartNumber).values(fatia)
         db.execute(stmt.on_conflict_do_update(
             index_elements=["part_number"],
             set_={
@@ -115,39 +97,7 @@ async def import_csv(
                 "import_batch": stmt.excluded.import_batch,
             },
         ))
-        gravadas += len(lote)
-        lote = []
-
-    agora = datetime.now(timezone.utc)
-    for n, linha in enumerate(linhas[inicio:], start=inicio + 1):
-        if not linha or not any(c.strip() for c in linha):
-            continue
-        recebidas += 1
-        chave = parts_lib.normalise_part_number(linha[0])
-        if not chave:
-            if len(erros) < 20:
-                erros.append("linha %d: part number vazio ou sem caractere util" % n)
-            continue
-        if len(chave) > 32:
-            if len(erros) < 20:
-                erros.append("linha %d: part number '%s' tem mais de 32 caracteres" % (n, chave))
-            continue
-        # Duplicata dentro do proprio arquivo: o upsert em lote reclama de duas
-        # linhas com a mesma chave no mesmo comando. Nao e erro, mas e contada
-        # -- 'ignoradas' sem explicacao e o mesmo defeito de documento gravado
-        # sem nota.
-        if chave in vistos:
-            duplicadas += 1
-            continue
-        vistos.add(chave)
-        nome = (linha[1].strip() if len(linha) > 1 and linha[1] else None) or None
-        lote.append({
-            "part_number": chave, "name": nome,
-            "imported_at": agora, "import_batch": batch,
-        })
-        if len(lote) >= _LOTE:
-            descarrega()
-    descarrega()
+        gravadas += len(fatia)
 
     # Sem isto a lista nova ficaria com requires_serial do import anterior --
     # as linhas novas entrariam todas como false, em silencio.
@@ -157,14 +107,14 @@ async def import_csv(
 
     total = db.scalar(select(func.count()).select_from(ReleasedPartNumber)) or 0
     return {
-        "recebidas": recebidas,
+        "recebidas": lido["recebidas"],
         "gravadas": gravadas,
-        "ignoradas": recebidas - gravadas,
+        "ignoradas": lido["recebidas"] - gravadas,
         # recebidas = gravadas + duplicadas + len(erros), sempre.
-        "duplicadas_no_arquivo": duplicadas,
+        "duplicadas_no_arquivo": lido["duplicadas"],
         "total_na_lista": total,
         "requires_serial": marcadas,
-        "erros": erros,
+        "erros": lido["erros"],
     }
 
 

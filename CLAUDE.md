@@ -410,6 +410,16 @@ importar `shared.dedupe`, o `function/shared/` da VM era de antes e não tinha
 esse módulo, e o `ModuleNotFoundError` não diz nada sobre vendorização. O
 script de aplicação faz esse passo desde então.
 
+**A venv local tem dependencia que o CI da CAT nao tem.** Ela e montada do
+`pyproject.toml` e arrasta o modo local junto -- `openai`, Docling, e o que eles
+puxam. O CI instala so o `requirements.txt`. Um `import` que funciona aqui pode
+nao existir la, e o erro so aparece no run deles. Aconteceu com o `httpx`, que
+o `TestClient` do FastAPI exige: o `check_parts.py` passava aqui e quebraria no
+CI. **Teste de logica nao sobe HTTP** -- a funcao pura vai para o `shared` e o
+check chama direto. Para conferir antes de mandar, monte uma venv limpa com
+`python -m venv` + `pip install -r backend/requirements.txt` e rode os checks
+nela; e o unico jeito de ver o que o CI ve.
+
 **O `shared/` roda em 3.11, mesmo com o backend em 3.14.** A Function App está
 em 3.11 (a 3.14 ainda não chegou lá) e o `shared` é implantado nas duas
 aplicações: sintaxe que só exista em 3.14 passa no backend e **quebra no import

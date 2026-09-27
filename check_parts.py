@@ -12,11 +12,7 @@ Os numeros vem da PN Liberados.xlsx real, medidos em 25/09: 206.769 pecas,
 import os
 import sys
 
-_raiz = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(_raiz, "shared"))
-# O relatorio de import e testado pelo endpoint, entao o pacote do backend
-# entra no caminho. E o unico check que precisa dele.
-sys.path.insert(0, os.path.join(_raiz, "backend"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "shared"))
 
 from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.orm import Session
@@ -140,12 +136,10 @@ print("=== o relatorio de import fecha: recebidas = gravadas + duplicadas + erro
 # Numero sem explicacao e o mesmo defeito de documento gravado sem nota: a
 # primeira versao dizia "3 ignoradas" e listava 2 erros, e a terceira era uma
 # duplicata que sumia calada.
-from fastapi.testclient import TestClient
-import app.main as _m  # noqa: E402
-cliente = TestClient(_m.app)
-# Montado linha a linha de proposito: concatenacao implicita de literais liga
-# mais forte que o '*', entao juntar tudo num parenteses repetia o arquivo
-# inteiro 40 vezes em vez de gerar uma chave longa.
+#
+# Testado direto na funcao pura, sem TestClient: ele exige httpx, que nao esta
+# no requirements.txt do backend e nao vai estar -- e dependencia de teste, nao
+# de producao. No CI da CAT o import do TestClient derrubava este check.
 CSV = "\n".join([
     "PECA,NOME",
     "6511308,ENGINE AR-COMPL",
@@ -153,13 +147,26 @@ CSV = "\n".join([
     "6511308,ENGINE AR-COMPL",      # duplicata dentro do arquivo
     ",SEM PART NUMBER",             # sem chave
     "X" * 40 + ",LONGO DEMAIS",     # chave acima de 32 caracteres
-]).encode()
-r = cliente.post("/parts/import", files={"file": ("t.csv", CSV, "text/csv")}).json()
+])
+r = parts.parse_csv(CSV)
 check("recebidas", r["recebidas"], 5)
-check("gravadas", r["gravadas"], 2)
-check("duplicadas contadas", r["duplicadas_no_arquivo"], 1)
+check("validas", len(r["validas"]), 2)
+check("duplicadas contadas", r["duplicadas"], 1)
 check("erros listados", len(r["erros"]), 2)
-check("a conta fecha", r["gravadas"] + r["duplicadas_no_arquivo"] + len(r["erros"]), r["recebidas"])
+check("a conta fecha", len(r["validas"]) + r["duplicadas"] + len(r["erros"]), r["recebidas"])
+check("a chave sai normalizada", r["validas"][0], ("6511308", "ENGINE AR-COMPL"))
+
+print("=== cabecalho e opcional, e so pula titulo conhecido ===")
+# Pular por heuristica apagaria a primeira peca de um arquivo sem cabecalho.
+sem = parts.parse_csv("6511308,ENGINE AR-COMPL\n2P1467,SUPPORT-ENGINE")
+check("sem cabecalho, nenhuma linha perdida", len(sem["validas"]), 2)
+check("arquivo vazio e sinalizado", parts.parse_csv("")["vazio"], True)
+
+print("=== decode_csv aguenta o que o Excel do Windows salva ===")
+# encode('utf-8-sig') ja POE o BOM; passar uma string que ja comeca com \ufeff
+# gera dois, e o decode tira so um.
+check("utf-8 com BOM", parts.decode_csv("6511308,MOTOR".encode("utf-8-sig")).split(",")[0], "6511308")
+check("latin-1", parts.decode_csv("6511308,CORREIA DE TRANSMISS\xc3O".encode("latin-1")).split(",")[0], "6511308")
 
 print()
 if falhas:
