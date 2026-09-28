@@ -145,7 +145,7 @@ $token = (az account get-access-token --resource https://ossrdbms-aad.database.w
 $create = "SELECT * FROM pgaadauth_create_principal_with_oid('$APP','$mi','service',false,false);"
 az postgres flexible-server execute -n $PG -u $GROUP -p $token -d documentreader --querytext $create
 
-$grants = "GRANT USAGE ON SCHEMA public TO ""$APP""; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO ""$APP""; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO ""$APP""; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO ""$APP"";"
+$grants = "GRANT USAGE ON SCHEMA public TO ""$APP""; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO ""$APP""; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO ""$APP""; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO ""$APP""; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO ""$APP"";"
 az postgres flexible-server execute -n $PG -u $GROUP -p $token -d documentreader --querytext $grants
 ```
 > Se o `pgaadauth_create_principal_with_oid` não existir nessa versão do servidor, me
@@ -208,7 +208,7 @@ az functionapp identity assign -g $RG -n $FUNC
 $mifunc = (az functionapp identity show -g $RG -n $FUNC --query principalId -o tsv)
 $createF = "SELECT * FROM pgaadauth_create_principal_with_oid('$FUNC','$mifunc','service',false,false);"
 az postgres flexible-server execute -n $PG -u $GROUP -p $token -d documentreader --querytext $createF
-$grantsF = "GRANT USAGE ON SCHEMA public TO ""$FUNC""; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO ""$FUNC""; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO ""$FUNC""; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO ""$FUNC"";"
+$grantsF = "GRANT USAGE ON SCHEMA public TO ""$FUNC""; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO ""$FUNC""; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO ""$FUNC""; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO ""$FUNC""; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO ""$FUNC"";"
 az postgres flexible-server execute -n $PG -u $GROUP -p $token -d documentreader --querytext $grantsF
 # Blob (mesma ressalva de permissão da seção 2.5):
 $scope = (az storage account show -g $RG -n $ST --query id -o tsv)
@@ -296,8 +296,26 @@ que o clipboard do Windows cola junto — com ele o servidor responde
 `awk -F.` conta as partes do JWT: **3** significa inteiro, **2** significa que a
 colagem foi truncada.
 
-Confira por `information_schema`, nunca por `alembic current`, e reinicie o
+Confira pelo catálogo, nunca por `alembic current`, e reinicie o
 fastapi e a function depois — eles carregaram o modelo antigo na memória.
+
+**Migração que cria sequence precisa de `GRANT` depois.** Até 28/09 os
+`GRANT` das seções 2.4 e 3.3 davam privilégio padrão só para **tabelas**
+novas; a `0005` criou a `serial_rules_id_seq` e as duas Managed Identities
+ficaram sem `USAGE` nela (reproduzido num Postgres com o estado de produção).
+Não quebrou nada porque a aplicação grava `serial_rules` sempre com `id=1`, mas
+a próxima tabela com `id` serial falharia no primeiro insert com
+`permission denied for sequence`. O `ALTER DEFAULT PRIVILEGES ... ON SEQUENCES`
+agora está nas duas seções; num banco criado antes disso, rode uma vez, como
+admin, para cada MI:
+
+```sql
+GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO "<mi>";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO "<mi>";
+```
+
+Lembre que `has_table_privilege(r, t, 'SELECT,INSERT')` devolve verdadeiro se
+houver **qualquer um** dos privilégios listados — conferir um por vez.
 
 **O `alembic/env.py` não injeta token de propósito.** É o que deixa o
 `PGPASSWORD` valer. Se alguém "corrigir" isso copiando o listener do
