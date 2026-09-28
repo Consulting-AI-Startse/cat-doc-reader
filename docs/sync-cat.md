@@ -12,13 +12,24 @@ estado do PR.
 
 ---
 
-## 2026-09-28 — leva 7: o frontend morria no boot · **PR não aberto**
+## 2026-09-28 — leva 7: o frontend morria no boot · **merjado**
 
 5 caminhos (1 renomeado, 3 modificados), por ZIP em base64 + script
-autocontido. Branch sugerida: `fix/frontend-boot-cjs` — ou um commit a mais
-na `feat/part-numbers-and-serial`, se o PR da leva 6 ainda não tiver sido
-aberto: foi o deploy dela que falhou. Base conferida pelos blobs que a VM
-reportou (HEAD `6be7006`); os quatro bateram.
+autocontido. Branch: `fix/frontend-boot-cjs`, aberta da `main` depois do merge
+da leva 6 (`a30b9d1`, PR #26). Base conferida pelos blobs que a VM reportou
+(HEAD `6be7006`), e de novo na `main` antes do `stash pop`; os quatro bateram.
+
+**Conferido em produção em 28/09.** O primeiro deploy com a correção falhou
+mesmo assim, com o site de pé: o container imprimiu `serving dist on 8080` e a
+plataforma registrou `Site started` às 14:15:04, 30 s depois do publish, mas o
+`az webapp deploy` seguiu em "Starting the site..." até estourar os 10 minutos
+com `FailedInstances: 1`. Todas as linhas de status carregavam
+`LastError: ContainerStartupFailure` de 13:45 — a última queda do `server.js`
+antigo. Depois de um restart manual (que troca o `LastError` por
+`SiteStartupCancelled`), o deploy seguinte passou. A leitura, **não
+confirmada**, é que o acompanhamento do deploy conta o `LastError` velho como
+falha: o primeiro deploy depois de uma sequência de quedas pode falhar com o
+site saudável. Se acontecer, restart e rodar de novo.
 
 **O deploy do frontend caía por timeout de 10 minutos** ("the site failed to
 start within 10 mins"), sem pista de causa. O zip leva o `package.json`, que
@@ -58,10 +69,10 @@ lugar, reproduz o `ReferenceError`.
 
 ---
 
-## 2026-09-27 — leva 6: lista de PN, serial number e conserto do CD · **PR não aberto**
+## 2026-09-27 — leva 6: lista de PN, serial number e conserto do CD · **merjado** (PR #26)
 
-26 arquivos (8 novos), por ZIP em base64 + script autocontido. Branch sugerida:
-`feat/part-numbers-and-serial`.
+26 arquivos (8 novos), por ZIP em base64 + script autocontido. Branch:
+`feat/part-numbers-and-serial`, merjada na `main` como `a30b9d1` (PR #26).
 
 **O que vai:**
 
