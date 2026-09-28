@@ -12,6 +12,35 @@ estado do PR.
 
 ---
 
+## 2026-09-28 — migração 0005 + 0006 em produção, e o GRANT que faltava · **aplicado**
+
+Não é leva de código: é a operação no banco que a leva 6 deixou pendente (o
+job `migrate` falha de propósito). Três roteiros em base64, rodados pelo
+webssh do fastapi com token de administrador (`migrar-0006-v2`,
+`grant-0006`, `fechar-0006`). Todo código Python foi como uma linha de
+base64 com SHA-256 conferido antes de executar: a primeira versão, em texto,
+chegou ao webssh sem indentação, sem `*` e sem `#` — passou por algo que a
+leu como Markdown.
+
+- `alembic upgrade head`: `0004 -> 0005 -> 0006`, limpo.
+- **As duas MIs ficaram sem nenhum privilégio** em `released_part_numbers`,
+  `serial_rules` e `serial_rules_id_seq`. O `pg_default_acl` de produção
+  estava **vazio**: o `ALTER DEFAULT PRIVILEGES` do `DEPLOY.md` nunca vigorou.
+  Todas as tabelas têm o mesmo dono, o grupo admin. Corrigido com `GRANT ...
+  ON ALL TABLES/SEQUENCES` e `ALTER DEFAULT PRIVILEGES` para tabelas e
+  sequences, como o grupo admin; o `pg_default_acl` agora tem as linhas `r`
+  (`arwd`) e `S` (`rU`) para as duas MIs. Conferência pelo catálogo: `TUDO OK`.
+- **Nenhum documento afetado:** nenhum foi atualizado desde 27/09, então nada
+  passou pelo `doc_worker` enquanto a lista estava inacessível.
+
+**Pendente para a próxima leva:** a correção do `DEPLOY.md` (commits `6f9e277`
+e `d5d5290`) e o `--clean true` no deploy do frontend. E, a reproduzir antes:
+o `except` em volta do `lookup_parts` no `doc_worker` não faz rollback, e no
+Postgres um comando que falha aborta a transação — a próxima falha da
+consulta derrubaria o documento adiante, em vez de seguir sem serial.
+
+---
+
 ## 2026-09-28 — leva 7: o frontend morria no boot · **merjado**
 
 5 caminhos (1 renomeado, 3 modificados), por ZIP em base64 + script
