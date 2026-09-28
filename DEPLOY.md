@@ -299,23 +299,40 @@ colagem foi truncada.
 Confira pelo catálogo, nunca por `alembic current`, e reinicie o
 fastapi e a function depois — eles carregaram o modelo antigo na memória.
 
-**Migração que cria sequence precisa de `GRANT` depois.** Até 28/09 os
-`GRANT` das seções 2.4 e 3.3 davam privilégio padrão só para **tabelas**
-novas; a `0005` criou a `serial_rules_id_seq` e as duas Managed Identities
-ficaram sem `USAGE` nela (reproduzido num Postgres com o estado de produção).
-Não quebrou nada porque a aplicação grava `serial_rules` sempre com `id=1`, mas
-a próxima tabela com `id` serial falharia no primeiro insert com
-`permission denied for sequence`. O `ALTER DEFAULT PRIVILEGES ... ON SEQUENCES`
-agora está nas duas seções; num banco criado antes disso, rode uma vez, como
-admin, para cada MI:
+**Depois de toda migração que cria tabela, confira os privilégios das MIs.**
+Em 28/09, depois da `0005`, as duas Managed Identities estavam **sem nenhum
+privilégio** em `released_part_numbers`, `serial_rules` e
+`serial_rules_id_seq`. O `pg_default_acl` de produção estava **vazio**: o
+`ALTER DEFAULT PRIVILEGES` das seções 2.4 e 3.3 nunca vigorou. Todas as
+tabelas têm o mesmo dono (o grupo admin), então não era papel trocado. As
+antigas tinham acesso só porque o `GRANT ... ON ALL TABLES` pegou o que
+existia na hora.
+
+O sintoma não aponta para a causa: o `doc_worker` consulta
+`released_part_numbers` a cada documento, então **todo documento processado
+entre o deploy da leva 6 e o `GRANT` falhou** com `permission denied`, e a tela
+de part numbers também. A migração em si passou limpa.
+
+Corrigido rodando, como admin, para cada MI (é idempotente):
 
 ```sql
+GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO "<mi>";
 GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO "<mi>";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO "<mi>";
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO "<mi>";
 ```
 
-Lembre que `has_table_privilege(r, t, 'SELECT,INSERT')` devolve verdadeiro se
-houver **qualquer um** dos privilégios listados — conferir um por vez.
+Sem `FOR ROLE`, o privilégio padrão vale para o que o papel **atual** criar,
+por isso tem de rodar como o mesmo grupo admin que roda o `alembic upgrade`.
+Depois disso o `pg_default_acl` mostra uma linha `r` (`arwd`) e uma `S` (`rU`)
+para o grupo, e a próxima tabela já nasce acessível. Conferir sempre:
+
+```sql
+SELECT pg_get_userbyid(defaclrole), defaclobjtype, defaclacl FROM pg_default_acl;
+```
+
+`has_table_privilege(r, t, 'SELECT,INSERT')` devolve verdadeiro se houver
+**qualquer um** dos privilégios listados — conferir um por vez.
 
 **O `alembic/env.py` não injeta token de propósito.** É o que deixa o
 `PGPASSWORD` valer. Se alguém "corrigir" isso copiando o listener do
