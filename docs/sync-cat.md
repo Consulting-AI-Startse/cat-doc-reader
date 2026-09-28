@@ -12,6 +12,52 @@ estado do PR.
 
 ---
 
+## 2026-09-28 — leva 7: o frontend morria no boot · **PR não aberto**
+
+5 caminhos (1 renomeado, 3 modificados), por ZIP em base64 + script
+autocontido. Branch sugerida: `fix/frontend-boot-cjs` — ou um commit a mais
+na `feat/part-numbers-and-serial`, se o PR da leva 6 ainda não tiver sido
+aberto: foi o deploy dela que falhou. Base conferida pelos blobs que a VM
+reportou (HEAD `6be7006`); os quatro bateram.
+
+**O deploy do frontend caía por timeout de 10 minutos** ("the site failed to
+start within 10 mins"), sem pista de causa. O zip leva o `package.json`, que
+declara `"type": "module"` para o Vite; com ele do lado, o Node 20 carregava o
+`server.js` como ESM e morria no primeiro `require` (`require is not defined
+in ES module scope`). Defeito desde que o workflow foi escrito — o deploy
+manual do `DEPLOY.md` escapava por subir só o `dist/` e servir com `pm2`.
+
+- `frontend/server.js` → `server.cjs`, que o Node lê como CommonJS
+  independente do `package.json`. Conteúdo idêntico (mesmo blob).
+- No `app-deploy.yml`, o startup command passa a rodar **antes** do publish: o
+  deploy espera o site subir com o startup vigente, e o antigo apontaria para
+  um `server.js` que o zip novo não traz.
+- O workflow vai **nos dois lugares** do lado da CAT: o diretório de
+  infraestrutura e `.github/workflows/`, que é o que o Actions executa. Os
+  dois estavam no mesmo blob.
+
+O script também sobe o `server.cjs` com o `package.json` do lado, que é a
+condição exata da falha, e para se o processo não ficar de pé. Testado aqui nos
+três caminhos (aplica limpo, já aplicada, diverge sem escrever), com checkout
+CRLF e Node 20 no Windows; o controle negativo, o arquivo antigo no mesmo
+lugar, reproduz o `ReferenceError`.
+
+| | |
+|---|---|
+| SHA-256 do `aplicar-leva7.b64` | `8543049187e8436ebc699905a202157c79da15b6f16002bbdfcbcd54ea317d9f` |
+| SHA-256 do `leva7-arquivos.b64` | `23dcfeb6b331dec6409bcaf22aaa31dcb122385136570e493d72664995448aab` |
+| SHA-256 do `leva7-arquivos.zip` | `2567da5fad1067966a05c2dd473d655473633964dca2c41628cab79bff245065` |
+
+| arquivo | base | depois |
+|---|---|---|
+| `frontend/server.js` | `3546e19ecc79` | **removido** |
+| `frontend/server.cjs` | **novo** | `3546e19ecc79` |
+| `aiagent-documentreader-infrastructure-azure/workflows/app-deploy.yml` | `9dae22a744b0` | `85db9a0f99cb` |
+| `.github/workflows/app-deploy.yml` (só lá) | `9dae22a744b0` | `85db9a0f99cb` |
+| `aiagent-documentreader-infrastructure-azure/bicep/main.bicep` | `b2ba489a5e80` | `ad041bb624ca` |
+
+---
+
 ## 2026-09-27 — leva 6: lista de PN, serial number e conserto do CD · **PR não aberto**
 
 26 arquivos (8 novos), por ZIP em base64 + script autocontido. Branch sugerida:
