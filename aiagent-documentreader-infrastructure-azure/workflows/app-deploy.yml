@@ -228,26 +228,39 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURESUBSCRIPTIONID }}
 
-      # O server.js e o dist/ sobem juntos: e ele que serve o bundle com
+      # O server.cjs e o dist/ sobem juntos: e ele que serve o bundle com
       # fallback de SPA. Sem ele o App Service nao tem o que executar.
+      #
+      # A extensao .cjs e o conserto, nao estilo. O package.json vai no zip e
+      # declara "type": "module" (o Vite precisa); como server.js, o Node 20
+      # carregava o arquivo como ESM e morria no primeiro require:
+      #   ReferenceError: require is not defined in ES module scope
+      # O container nunca subia, e o deploy caia por timeout de 10 minutos com
+      # "the site failed to start" -- sem dizer que era o modulo. Com .cjs o
+      # Node le CommonJS independente do package.json.
       - name: Empacotar
         working-directory: frontend
-        run: zip -r ../frontend.zip dist server.js package.json
+        run: zip -r ../frontend.zip dist server.cjs package.json
+
+      # B1: o appCommandLine nao tem caminho de IaC (o app-service.json nao
+      # expoe a propriedade), entao e reaplicado aqui a cada deploy. Sem ele o
+      # container sobe o entrypoint da imagem em vez da aplicacao.
+      #
+      # Roda ANTES do publish: o az webapp deploy espera o site subir, e sobe
+      # com o startup que estiver configurado naquele momento. Depois, o
+      # deploy que muda o nome do arquivo esperaria 10 minutos por um
+      # "node server.js" que o zip novo ja nao traz.
+      - name: Startup command (B1)
+        run: |
+          az webapp config set -g "${{ env.RESOURCEGROUPNAME }}" \
+            -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-frontend-appservice" \
+            --startup-file "node server.cjs"
 
       - name: Publicar
         run: |
           az webapp deploy -g "${{ env.RESOURCEGROUPNAME }}" \
             -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-frontend-appservice" \
             --src-path frontend.zip --type zip
-
-      # B1: o appCommandLine nao tem caminho de IaC (o app-service.json nao
-      # expoe a propriedade), entao e reaplicado aqui a cada deploy. Sem ele o
-      # container sobe o entrypoint da imagem em vez da aplicacao.
-      - name: Startup command (B1)
-        run: |
-          az webapp config set -g "${{ env.RESOURCEGROUPNAME }}" \
-            -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-frontend-appservice" \
-            --startup-file "node server.js"
 
   # ==========================================================================
   # Backend

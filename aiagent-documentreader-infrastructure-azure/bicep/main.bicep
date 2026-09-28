@@ -137,7 +137,7 @@ module appServiceFastApi 'app-service.json' = {
     // Sem caminho de health check a plataforma sonda '/', que o backend nao
     // serve -- e e o nginx respondendo essa sonda que deixa um deploy
     // completamente quebrado se reportar saudavel. O frontend fica de fora de
-    // proposito: o server.js tem fallback de SPA, entao qualquer caminho
+    // proposito: o server.cjs tem fallback de SPA, entao qualquer caminho
     // devolve 200 e um health check ali passaria ate sem bundle.
     healthCheckPath: '/health'
   }
