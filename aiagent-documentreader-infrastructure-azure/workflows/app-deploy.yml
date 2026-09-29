@@ -413,12 +413,26 @@ jobs:
       - name: Vendorizar o shared
         run: bash scripts/build.sh
 
+      # As dependencias vao DENTRO do pacote, instaladas aqui. O build remoto
+      # (scm-do-build-during-deployment) so roda se a app setting
+      # SCM_DO_BUILD_DURING_DEPLOYMENT existir, e todo run de infraestrutura a
+      # apaga (concat fechado do functions.json). Em 27/09 o deploy da leva 6
+      # foi um rsync de 28 arquivos sem pip install: o wwwroot ficou sem
+      # .python_packages, o worker nao importava o function_app, e o host
+      # respondeu 404 a toda rota com state=Running e errors=null.
+      - name: Instalar dependencias no pacote
+        run: |
+          pip install --target function/.python_packages/lib/site-packages \
+            -r function/requirements.txt
+
       # Ultima barreira antes de publicar. Ja subimos um modulo que compilava e
-      # nao importava, e a function respondeu 404 ate alguem rodar isto.
+      # nao importava, e a function respondeu 404 ate alguem rodar isto. O
+      # import usa SO o que vai no pacote: -S tira o site-packages do runner,
+      # que mascararia uma dependencia ausente.
       - name: import function_app
         run: |
-          pip install -r function/requirements.txt
-          cd function && python -c "import function_app"
+          cd function
+          PYTHONPATH=.python_packages/lib/site-packages python -S -c "import function_app"
 
       - name: Carregar as variaveis
         shell: pwsh
@@ -444,8 +458,30 @@ jobs:
         with:
           app-name: ${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-backend-function
           package: function
-          scm-do-build-during-deployment: true
-          enable-oryx-build: true
+          scm-do-build-during-deployment: false
+          enable-oryx-build: false
+
+      # O host sobe Running e sem errors mesmo sem conseguir importar nada, e a
+      # lista de funcoes do ARM e a do ultimo sync -- nenhum dos dois denuncia
+      # o pacote sem dependencias. O wwwroot, pelo SCM, denuncia. O SCM nao
+      # herda a restricao de rede do site, entao o runner alcanca.
+      - name: Conferir o wwwroot
+        shell: bash
+        run: |
+          set -euo pipefail
+          FUNC="${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-backend-function"
+          SCM="https://${FUNC}.scm.azurewebsites.net"
+          nomes=$(az rest --method get --resource "https://management.azure.com/" \
+            --uri "$SCM/api/vfs/site/wwwroot/" --query "[].name" -o tsv)
+          falhou=0
+          for n in .python_packages function_app.py doc_worker.py shared pipeline; do
+            if printf '%s\n' "$nomes" | grep -qx -- "$n"; then
+              echo "  ok  $n"
+            else
+              echo "::error::$n AUSENTE do wwwroot"; falhou=1
+            fi
+          done
+          exit $falhou
 
   # ==========================================================================
   # B2: reaplicar as application settings, e conferir que ficaram
