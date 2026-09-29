@@ -12,6 +12,58 @@ estado do PR.
 
 ---
 
+## 2026-09-29 — leva 8: a function publicava sem dependências · **enviado**
+
+1 arquivo em 2 lugares, por ZIP em base64 + script autocontido. Branch
+sugerida: `fix/function-deps-in-package`. Base conferida pelos blobs que a VM
+reportou: os dois caminhos em `85db9a0f`, o "depois" da leva 7.
+
+**Todo upload caía com `HTTP Error 404` ao acionar a function** (29/09), e
+nenhum documento era processado desde 27/09. O host estava `Running`, com
+`errors: null`, e a lista de funções do ARM mostrava as três — os dois
+enganam: a lista é a do último sync, e o host sobe "saudável" com zero
+funções quando o worker não consegue importar o `function_app`. Quem
+denunciou foi o `wwwroot`, lido pelo SCM: **sem `.python_packages`**.
+
+O deploy da leva 6 (27/09 17:53) foi um `rsync` de 28 arquivos, 1 segundo,
+sem `pip install`. O `scm-do-build-during-deployment: true` do workflow só
+tem efeito com a app setting `SCM_DO_BUILD_DURING_DEPLOYMENT`, que não existe
+entre as 17 da function — e que todo run de infraestrutura apagaria.
+
+- As dependências passam a ser instaladas **no runner, dentro do pacote**
+  (`pip install --target function/.python_packages/lib/site-packages`), e o
+  build remoto é desligado. Não depende mais de setting nenhuma.
+- O `import function_app` de conferência usa só o que vai no pacote
+  (`python -S`); antes ele importava do site-packages do runner e passava com
+  o pacote vazio. Controle negativo: sem o pacote, `No module named 'azure'`.
+- Depois do publish, o `wwwroot` é conferido pelo SCM (que não herda a
+  restrição de rede) e o job cai se faltar `.python_packages`.
+
+**Ponte até o merge:** criar `SCM_DO_BUILD_DURING_DEPLOYMENT=true` e
+`ENABLE_ORYX_BUILD=true` na function e rodar `app-deploy → function`. Apagar
+as duas depois da leva 8. Documentos que caíram com o 404 ficaram em `error`
+e precisam ser reenviados.
+
+Script testado com PowerShell 5.1 e git do Windows, checkout CRLF, nos quatro
+caminhos: aplica limpo, já aplicada, diverge sem escrever, `.b64` corrompido.
+
+| | |
+|---|---|
+| SHA-256 do `aplicar-leva8.b64` | `f1a4d21426e96f72b0c7977e2fe7a4df1ab998a30b07a4e3a23cb91326ba310b` |
+| SHA-256 do `leva8-arquivos.b64` | `7d1b5a5a2d69228b32cbfa0cacfe495bbf4998133e3222edd24309fbe8664d31` |
+| SHA-256 do `leva8-arquivos.zip` | `15437afc038fb107298b458c69fdfed433a1f4738bcb71bbcf4e386942e95590` |
+
+| arquivo | base | depois |
+|---|---|---|
+| `aiagent-documentreader-infrastructure-azure/workflows/app-deploy.yml` | `85db9a0f99cb` | `0850d8667f7d` |
+| `.github/workflows/app-deploy.yml` (só lá) | `85db9a0f99cb` | `0850d8667f7d` |
+
+**Continua pendente** (fora desta leva, de propósito): a correção do
+`DEPLOY.md` (`6f9e277`, `d5d5290`), o `--clean true` no deploy do frontend e
+o rollback no `except` do `lookup_parts`.
+
+---
+
 ## 2026-09-28 — migração 0005 + 0006 em produção, e o GRANT que faltava · **aplicado**
 
 Não é leva de código: é a operação no banco que a leva 6 deixou pendente (o
