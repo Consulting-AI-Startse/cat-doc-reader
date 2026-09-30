@@ -155,160 +155,21 @@ preciso ter instalado para isto rodar", e ele só serve se estiver certo.
 **Neste repo nao se abre branch nem PR.** Commit direto na `main` e o normal; o
 PR existe do lado da CAT, e quem abre e o Luis. O passo 5 e dele, nao nosso.
 
-### O que entregar no passo 3
+### Leva para a CAT: o que nao se negocia
 
-Para cada leva de mudancas que precisa ir para a VM, produza **quatro coisas**:
+O passo a passo de montar a leva (o que entregar, script autocontido,
+conferencia por blob, transporte) esta na skill `.claude/skills/leva-cat/` --
+carregue antes de montar qualquer pacote. O que vale sempre:
 
-1. **O diff em `.txt`**, escopado so ao que espelha (ver a tabela acima). Nunca
-   incluir os arquivos do modo local.
-2. **O SHA-256 do `.b64` e do `.zip`**, para conferir o transporte. O do `.b64`
-   e o que importa: conferido antes de decodificar, separa "chegou corrompido"
-   de um erro cifrado do `certutil` meia hora depois. **E o blob SHA-1 do git
-   de cada arquivo da leva, em duas colunas** -- base e depois -- para conferir
-   o repo. SHA-256 de arquivo nao serve para isso: o CRLF do checkout do
-   Windows garante que nunca bata (ver a secao acima).
-3. **Um script autocontido que aplica, confere e testa sozinho** -- nao um
-   LEIA-ME com comandos para colar e saidas para conferir a olho. Ele roda a
-   partir de `Downloads` (nada de transporte entra no repo, ver abaixo) e nao
-   depende de `python` no PATH (na VM nao esta; usar
-   `.\function\.venv\Scripts\python.exe`).
-
-   **Autocontido quer dizer:** todo valor esperado -- SHA-256, tamanho, blob
-   base, blob depois -- esta embutido no proprio script, que compara a saida de
-   cada passo e **para na primeira divergencia**. Nada de "confira se bate com
-   a tabela": se sobrou conferencia para o operador, o script esta incompleto.
-
-   Formato: o script viaja em **base64**, com extensao `.b64` -- e um dos
-   poucos tipos que passam no e-mail da CAT. Do lado de la o `certutil -decode`
-   devolve um `.txt`, que roda por um comando. **Nao mandar `.ps1`**, que nao
-   passa. E o `.txt` decodificado tem de ser executavel de ponta a ponta:
-   qualquer prosa vai em comentario `#`, porque texto solto quebra a execucao.
-
-   **Entregar o `.b64` sem o comando de rodar nao e entrega.** Junto dos
-   arquivos vao sempre: os comandos exatos, **com os nomes reais desta leva**
-   (nunca `<leva>` generico), e em **qual maquina** rodam -- a VM da CAT
-   (`souzal1`), nao a maquina de desenvolvimento (`luisf`). Os dois `.b64` vao
-   por e-mail e ficam em `Downloads` do lado de la; o script acha o zip sozinho.
-
-   Rodar um `.txt` exige `Invoke-Expression`; o `-File` e o dot-source do
-   PowerShell so aceitam `.ps1`:
-
-   ```powershell
-   cd $env:USERPROFILE\Downloads
-   certutil -decode .\aplicar-<leva>.b64 .\aplicar-<leva>.txt
-   powershell -ExecutionPolicy Bypass -Command "Invoke-Expression (Get-Content -Raw .\aplicar-<leva>.txt)"
-   ```
-
-   Tres armadilhas medidas ao escrever o primeiro deles:
-
-   - **So ASCII.** O PowerShell 5.1 le arquivo sem BOM como ANSI, entao acento
-     vira lixo. O `certutil -decode` nao poe BOM.
-   - **`$ErrorActionPreference = 'Stop'` mata o script no lugar errado.** O
-     `git` escreve em stderr em situacao normal (`rev-parse` de caminho que
-     ainda nao existe no HEAD), e o PowerShell promove isso a erro terminante
-     -- `2>$null` nao segura. Chame o `git` por um wrapper que afrouxa a
-     preferencia e decide pelo codigo de saida.
-   - **A mensagem de erro tem de dizer se a arvore foi escrita.** Uma flag que
-     vira `true` antes do `Expand-Archive` e a diferenca entre "o repo nao foi
-     tocado" e "pode estar pela metade, desfaca assim".
-
-   **Teste o script antes de mandar.** Reconstrua a arvore da CAT a partir dos
-   blobs que ela reportou (`git cat-file -p <blob>` monta cada arquivo), rode o
-   script contra esse repo de teste e confira os tres caminhos: aplica limpo,
-   detecta leva ja aplicada, e para sem escrever quando um arquivo diverge.
-4. **Nome de branch e descricao de PR sugeridos**, prontos para o Luis usar.
-   Branch no padrao `fix/...` ou `feat/...`, descricao dizendo o que muda, por
-   que, e como conferir.
-
-### Mande arquivo pronto, não diff
-
-Um `git diff` exige que o outro lado esteja exatamente onde você pensa que está,
-e essa suposição já falhou duas vezes seguidas: uma pela leva anterior já ter
-sido aplicada lá, outra pelos blocos de modo local do `doc_worker.py`. O
-diagnóstico custou mais que o transporte.
-
-Então: **transporte é zip dos arquivos finais, em base64**, com o SHA-256 do
-`.b64` e do `.zip`. Sem contexto para casar, sem CRLF para negociar. O `git
-diff` continua sendo como se revisa aqui; só deixou de ser o formato de envio.
-
-E antes de sobrescrever qualquer arquivo que já existe lá, **confira o que está
-lá** contra o que você usou de base. Se não bater, pare: pode haver trabalho que
-só existe do lado da CAT, e lá é a referência.
-
-**Mas não confira por SHA-256 de arquivo — confira pelo blob do git.** O repo
-não tem `.gitattributes`, então o checkout do Windows grava CRLF e todo arquivo
-de texto no disco da VM tem bytes diferentes dos daqui. Um SHA-256 calculado
-aqui **nunca** bate lá, e o alarme falso se lê exatamente como "há trabalho só
-do lado da CAT, pare" — que é o oposto do que está acontecendo. Já custou uma
-leva: os três hashes que chegaram a sair na VM estavam todos certos, e só se
-revelaram certos depois de converter a base para CRLF.
-
-O blob SHA-1 do git é calculado sobre o conteúdo normalizado em LF, então é
-igual nos dois repos apesar dos históricos independentes:
-
-```bash
-git rev-parse HEAD:<caminho>     # o que o commit tem (os dois lados)
-git hash-object -- <caminho>     # o que o arquivo na árvore tem
-```
-
-Mande as duas colunas no LEIA-ME: o blob da **base** (o que tem de estar lá
-antes) e o blob **depois** da leva. A segunda coluna paga por si: um arquivo que
-já está no valor "depois" foi aplicado numa tentativa anterior, que é
-precisamente o diagnóstico que custou a leva 2.
-
-**Não preveja a base a partir do nosso histórico — peça ao outro lado.** Para
-qualquer arquivo tocado por um commit que não espelha, o blob da CAT não existe
-em lugar nenhum daqui, e não há como derivá-lo de um `git log`. Foi o que
-aconteceu com o `doc_worker.py`: entre `Refine OCR extraction` e o poison
-handler ele recebeu quatro commits de modo local, nenhum deles espelhado, então
-a base real da CAT era "o nosso HEAD menos o gancho de modo local" — um estado
-que nunca foi commitado aqui. A previsão deu um falso "DIVERGE" e parou a leva.
-
-O barato é inverter a ordem: **antes de montar o pacote, peça os blobs da VM**
-(`git rev-parse HEAD:<caminho>`, um por arquivo da leva) e monte a coluna "base"
-com o que voltou. Um comando, uma resposta, e a conferência passa a valer
-alguma coisa — prevista, ela só testa a nossa suposição contra ela mesma.
-
-O SHA-256 continua valendo para o `.b64` e o `.zip` — ali o que se confere é o
-transporte, byte a byte, e não há checkout no meio.
-
-### O transporte tem de preservar os bytes
-
-Diff cru em `.txt` **nao sobrevive ao e-mail**: o filtro de links reescreve URLs
-e nomes terminados em `.py` (`.py` e TLD do Paraguai), e isso ja corrompeu os
-proprios cabecalhos `diff --git`, deixando o patch inaplicavel.
-
-Entao, na pratica: gere o diff, **codifique em base64** e mande o `.txt` do
-base64. Nao sobra nada que o filtro reconheca.
-
-**Isto vale para o arquivo de instrucoes tambem, nao so para o patch.** A leva
-do poison handler mandou o LEIA-ME em texto puro e o filtro reescreveu os nomes
-dos arquivos dentro dele (`function/doc_worker` + a extensao virou um link do
-urldefense). O patch, em base64, chegou intacto ao lado.
-
-### Nada de transporte entra no repo
-
-O `.b64`, o `.patch` e o LEIA-ME **ficam em `Downloads` na VM e nunca sao
-copiados para dentro do repo**. Decodifique e confira ali; aplique de fora para
-dentro, com caminho absoluto. Um arquivo de transporte deixado na arvore e
-esquecido sobe para o repo da CAT -- ja aconteceu com o `cat-fixes.patch`, que
-precisou de `git rm --cached` + amend antes do PR.
-
-```powershell
-cd $env:USERPROFILE\Downloads
-(Get-Item .\p.b64).Length                                    # confere o b64 ANTES
-(Get-FileHash .\p.b64 -Algorithm SHA256).Hash.ToLower()      # de decodificar
-certutil -decode .\p.b64 .\cat.patch
-(Get-FileHash .\cat.patch -Algorithm SHA256).Hash.ToLower()  # tem de bater
-
-cd <raiz do repo da CAT>
-git apply --check "$env:USERPROFILE\Downloads\cat.patch"
-git apply "$env:USERPROFILE\Downloads\cat.patch"
-git status --short   # so os arquivos modificados; nenhum '??'
-```
-
-Conferir o hash do proprio `.b64` antes de decodificar e o que separa "chegou
-corrompido" de um erro cifrado do `certutil` ou do `git apply` depois.
+- **Nunca incluir os arquivos do modo local** (tabela acima) no pacote.
+- **Transporte e zip dos arquivos finais em base64** (`.b64`), com SHA-256 do
+  `.b64` e do `.zip`. Nunca diff cru nem instrucoes em texto puro: o filtro de
+  e-mail reescreve URLs e nomes `.py`. **Nunca `.ps1`**, que nao passa.
+- **Confira pelo blob do git** (`git rev-parse HEAD:<caminho>`), nunca por
+  SHA-256 de arquivo: o CRLF do checkout da VM faz o hash nunca bater.
+- **Nao preveja a base pelo nosso historico** -- peca os blobs a VM antes.
+- **Nada de transporte entra no repo**: fica em `Downloads` na VM.
+- **Teste o script antes de mandar**, contra uma arvore reconstruida dos blobs.
 
 ## Rodar e testar
 
@@ -436,60 +297,8 @@ palavra) ou da aritmética (soma das linhas contra o total impresso).
 `total 22944.02` numa rodada e `22.94` na seguinte. Medir acurácia com uma
 rodada só é medir ruído.
 
-**Confira por `length(value)`, não a olho.** O `az ... -o table` reflui valores
-longos, e isso nos fez diagnosticar um `FUNCTION_URL` truncado como ausente. O
-mesmo vale para migração: confira `information_schema.columns`, não o
-`alembic current` — uma migração pode estar carimbada sem estar aplicada.
+**Operacao no Azure da CAT** (`az`, webssh, migracao, App Service, run de
+infra): as armadilhas estao na skill `.claude/skills/operar-azure-cat/` --
+carregue antes de diagnosticar ou mexer em recurso da CAT.
 
-**Nome de recurso da CAT se descobre, nao se deriva.** O resource group real e
-`aicoe_aiagent_documentreader_pov`, nao o `<projeto>-<ambiente>` que os
-workflows usam como rede de seguranca — o valor de verdade vem de
-`.github/variables/*.env`, que nao existe deste lado. Derivar custou duas
-rodadas, e o sintoma nao ajuda: `az` com o RG errado nao acha o servidor, e a
-falha se parece com "nao consegui descobrir o admin". Descubra com
-`az postgres flexible-server list --query "[].{n:name,g:resourceGroup}" -o tsv`
-e afins, ou peca. O mesmo vale para nome de subcomando do `az`: `ad-admin`
-virou `microsoft-entra-admin`, e `execute` precisa da extensao
-`rdbms-connect`, ausente na VM.
-
-**O webssh trunca a entrada em 4095 caracteres.** Um token do Entra tem ~4500,
-entao colar de uma vez corta a assinatura do JWT e o servidor responde
-`The access token has invalid format`. Vai em duas metades. Confira contando as
-partes: `printf '%s' "$T" | awk -F. '{print NF}'` tem de dar **3**.
-
-**Migracao de schema nao roda como a Managed Identity.** Ver a secao propria no
-`DEPLOY.md`. A MI tem so DML por desenho; quem e dono das tabelas e o grupo
-admin do Entra. E a VM nao alcanca o Postgres (fora da allow-list), entao o
-unico caminho e o webssh com token de administrador.
-
-**O App Service so aceita as redes da CAT, e o runner do GitHub nao e uma
-delas.** Acao padrao `Deny`; as `Allow` sao Cat_Amsterdam, Cat_Chicago,
-Cat_Dublin, Cat_Peoria_Firewall, Cat_Plano, Cat_Singapore e os ExpressRoute
-NAT. O `/health` do runner devolve 403 com a pagina "blocked your access" --
-que e a restricao, nao a aplicacao. Isso derrubou o deploy do backend por dias
-com um app saudavel, e gerou um diagnostico falso ("cold start de 5 minutos")
-porque o curl manual de conferencia saia da rede da CAT. **O SCM nao herda
-essas regras**, e e por isso que publicar funciona e verificar nao: sao portas
-diferentes. Ver a secao propria no `DEPLOY.md`.
-
-**Um run de infraestrutura pode apagar as app settings.** O `functions.json`
-monta `siteConfig.appSettings` como um `concat(...)` fechado, então reprovisionar
-zera o que foi configurado por fora. Depois de qualquer run de infra, reconfira
-as settings — `DATABASE_URL` sumiu assim uma vez.
-
-## Onde ficam as coisas
-
-```
-shared/shared/       fonte unica: config, db, models, storage
-backend/app/api/     rotas (documents, dashboard)
-function/            function_app.py (3 gatilhos) + doc_worker.py + pipeline/
-frontend/src/        paginas em pages/, rotas inline em main.tsx
-backend/alembic/     migracoes; db/db-setup-v2.sql e gerado delas
-docs/ambiente.md     ferramentas e versoes do ambiente local
-docs/modo-local.md   modo local de IA
-docs/sync-cat.md     log do que ja foi espelhado para a CAT
-docs/cat-cd/         CD de infraestrutura da CAT, so referencia -- nao roda daqui
-aiagent-documentreader-infrastructure-azure/
-  bicep/             main.bicep e rbac.bicep (espelham)
-  workflows/         app-ci.yml e app-deploy.yml (espelham; ativar em .github/)
-```
+**`db/db-setup-v2.sql` e gerado das migracoes do alembic** -- nao editar a mao.
