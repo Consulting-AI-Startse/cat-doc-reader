@@ -12,7 +12,14 @@ estado do PR.
 
 ---
 
-## 2026-09-30 — leva 9: wheels da function para a glibc do host · **enviado**
+## 2026-09-30 — leva 9: wheels da function para a glibc do host · **merjado**
+
+**Merjada e publicada em 30/09** (`app-deploy → function`). A function voltou
+a indexar e processar: o Document Intelligence respondeu 202, e o user-agent
+do host confirma `glibc2.31` — o teto de 2.28 tem folga. O próximo erro já é
+de outra camada: `401 PermissionDenied` no Azure OpenAI para a MI da function
+(`cd1b90fa-7e33-4036-b49c-bc9593dca99d`), sem a data action
+`.../OpenAI/deployments/chat/completions/action`. É RBAC, não código.
 
 1 arquivo em 2 lugares, por ZIP em base64 + script autocontido. Branch
 sugerida: `fix/function-wheels-host-glibc`. Base conferida pelos blobs que a VM
