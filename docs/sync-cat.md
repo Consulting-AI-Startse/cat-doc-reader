@@ -12,7 +12,18 @@ estado do PR.
 
 ---
 
-## 2026-09-29 — leva 8: a function publicava sem dependências · **enviado**
+## 2026-09-29 — leva 8: a function publicava sem dependências · **merjado** (regressão: ver abaixo)
+
+**Merjada e publicada, e o 404 voltou** (30/09). Conferido na VM:
+`origin/main:.github/workflows/app-deploy.yml` = `0850d866`, e o `wwwroot` tem
+`.python_packages` completo. Desta vez quem denunciou foi o Application
+Insights: `Worker failed to index functions` / `No job functions found`, com
+`ImportError: ... GLIBC_2.33 not found` em
+`cryptography/hazmat/bindings/_rust.abi3.so`, pela cadeia
+`function_app → doc_worker → shared/db → azure.identity`. O `pip install` no
+`ubuntu-latest` escolheu o wheel `manylinux_2_34` do cryptography, que o
+container da function não carrega; o `import` de conferência passou porque
+roda na glibc do runner. Correção na leva seguinte.
 
 1 arquivo em 2 lugares, por ZIP em base64 + script autocontido. Branch
 sugerida: `fix/function-deps-in-package`. Base conferida pelos blobs que a VM

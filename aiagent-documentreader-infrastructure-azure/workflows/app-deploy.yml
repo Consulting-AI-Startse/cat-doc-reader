@@ -420,9 +420,19 @@ jobs:
       # foi um rsync de 28 arquivos sem pip install: o wwwroot ficou sem
       # .python_packages, o worker nao importava o function_app, e o host
       # respondeu 404 a toda rota com state=Running e errors=null.
+      #
+      # A plataforma e a do HOST, nao a do runner. Sem --platform o pip escolhe
+      # o wheel mais novo que o ubuntu-latest aceita: em 30/09 o cryptography
+      # veio manylinux_2_34, o _rust.abi3.so pediu GLIBC_2.33 que o container
+      # da function nao tem, o import quebrou no azure.identity (via
+      # shared/db.py) e o host subiu com "No job functions found" -- 404 de
+      # novo, agora com o pacote cheio. O import de conferencia abaixo passou,
+      # porque roda na glibc do runner.
       - name: Instalar dependencias no pacote
         run: |
           pip install --target function/.python_packages/lib/site-packages \
+            --platform manylinux_2_28_x86_64 --platform manylinux2014_x86_64 \
+            --python-version 3.11 --implementation cp --only-binary=:all: \
             -r function/requirements.txt
 
       # Ultima barreira antes de publicar. Ja subimos um modulo que compilava e
@@ -433,6 +443,28 @@ jobs:
         run: |
           cd function
           PYTHONPATH=.python_packages/lib/site-packages python -S -c "import function_app"
+
+      # O import acima nunca pega extensao nativa construida para glibc nova
+      # demais: o runner tem a glibc mais recente de todas. Isto le a versao
+      # exigida por cada .so do pacote. O teto e o do manylinux_2_28 pedido
+      # acima; o host ficou abaixo de 2.33 (medido pelo erro de 30/09), e 2.28
+      # cobre qualquer Debian que ele possa ter. Controle negativo: o pacote
+      # de 30/09 da GLIBC_2.34 no cryptography e cai aqui.
+      - name: Conferir a glibc das extensoes nativas
+        run: |
+          set -euo pipefail
+          teto=2.28
+          falhou=0
+          while IFS= read -r -d '' so; do
+            v=$(objdump -T "$so" 2>/dev/null | grep -o 'GLIBC_[0-9][0-9.]*' \
+                | sed 's/GLIBC_//' | sort -uV | tail -1 || true)
+            [ -z "$v" ] && continue
+            if [ "$(printf '%s\n%s\n' "$v" "$teto" | sort -V | tail -1)" != "$teto" ]; then
+              echo "::error::GLIBC_$v > $teto em ${so#function/.python_packages/lib/site-packages/}"
+              falhou=1
+            fi
+          done < <(find function/.python_packages -name '*.so*' -type f -print0)
+          exit $falhou
 
       - name: Carregar as variaveis
         shell: pwsh
