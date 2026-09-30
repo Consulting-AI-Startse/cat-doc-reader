@@ -12,6 +12,47 @@ estado do PR.
 
 ---
 
+## 2026-09-30 — leva 9: wheels da function para a glibc do host · **enviado**
+
+1 arquivo em 2 lugares, por ZIP em base64 + script autocontido. Branch
+sugerida: `fix/function-wheels-host-glibc`. Base conferida pelos blobs que a VM
+reportou (`origin/main`): os dois caminhos em `0850d866`, o "depois" da leva 8.
+
+**O 404 voltou com o pacote cheio.** A leva 8 instalava as dependências no
+`ubuntu-latest`, e o pip escolheu o wheel `manylinux_2_34` do `cryptography`;
+o container da function não tem `GLIBC_2.33`, o import quebrava no
+`azure.identity` e o host subia com `No job functions found`. Diagnóstico pelo
+Application Insights (`Worker failed to index functions`) — o estado
+`Running`, o `wwwroot` e o `import` de conferência no runner estavam todos
+certos.
+
+- `pip install` com `--platform manylinux_2_28_x86_64` /
+  `manylinux2014_x86_64`, `--python-version 3.11`, `--only-binary=:all:`.
+  Mesmas versões de pacote; só o wheel do cryptography muda
+  (`manylinux_2_34` → `manylinux_2_28`).
+- Passo novo `Conferir a glibc das extensoes nativas`: lê a GLIBC exigida por
+  cada `.so` do pacote e cai acima de 2.28. Controle negativo: o pacote de
+  30/09 cai em `cryptography/hazmat/bindings/_rust.abi3.so` (GLIBC_2.34).
+
+Depois do merge: `app-deploy → function`, e reenviar os documentos que caíram
+com o 404 (entre eles `e7b3542f-e883-4a46-b020-1a1e1565177b`).
+
+Script testado com PowerShell 5.1 e git do Windows, checkout CRLF, nos quatro
+caminhos: aplica limpo, já aplicada, diverge sem escrever, `.b64` corrompido.
+
+| | |
+|---|---|
+| SHA-256 do `aplicar-leva9.b64` | `93f38e3c92e4cc22694485ecd57c707223bd6d5b803e60739fd82ec3e8fe65ea` |
+| SHA-256 do `leva9-arquivos.b64` | `bbab35f365ca67b2590c6a6654eeffc5d54deda6b047a82fb24e06665e376ab5` |
+| SHA-256 do `leva9-arquivos.zip` | `a3ab5e33343a77dda6c98b0bc4066c42f4cf52f50e6c03f42490df5358770bc3` |
+
+| arquivo | base | depois |
+|---|---|---|
+| `aiagent-documentreader-infrastructure-azure/workflows/app-deploy.yml` | `0850d8667f7d` | `83e8263501fc` |
+| `.github/workflows/app-deploy.yml` (só lá) | `0850d8667f7d` | `83e8263501fc` |
+
+---
+
 ## 2026-09-29 — leva 8: a function publicava sem dependências · **merjado** (regressão: ver abaixo)
 
 **Merjada e publicada, e o 404 voltou** (30/09). Conferido na VM:
