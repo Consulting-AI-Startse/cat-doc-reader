@@ -12,6 +12,19 @@ estado do PR.
 
 ---
 
+## 2026-10-01 — papel da function no Azure OpenAI · **aplicado** (não é leva)
+
+Operação na VM, sem código. Depois da leva 9 a function voltou a rodar e o
+próximo erro foi `401 PermissionDenied` no OpenAI para a MI
+`cd1b90fa-7e33-4036-b49c-bc9593dca99d`. A tag `roleAssignments1` do
+`rbac.bicep` não estava na conta: a `cloud-coe-automation-new` regravou as
+tags dela em 25/09 19:38 UTC, 13 min depois do nosso RBAC. Recolocada por
+`az tag update --operation Merge`; a automação criou o papel em minutos,
+function reiniciada, documento processado de ponta a ponta. Diagnóstico e
+comandos na skill `operar-azure-cat`.
+
+---
+
 ## 2026-09-30 — leva 9: wheels da function para a glibc do host · **merjado**
 
 **Merjada e publicada em 30/09** (`app-deploy → function`). A function voltou

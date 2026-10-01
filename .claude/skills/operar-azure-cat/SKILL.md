@@ -47,3 +47,31 @@ diferentes. Ver a secao propria no `DEPLOY.md`.
 monta `siteConfig.appSettings` como um `concat(...)` fechado, então reprovisionar
 zera o que foi configurado por fora. Depois de qualquer run de infra, reconfira
 as settings — `DATABASE_URL` sumiu assim uma vez.
+
+**O papel da function no OpenAI e uma tag, e a tag pode sumir.** O RBAC da CAT
+e declarado como tag `roleAssignments1` no recurso (`rbac.bicep`), e um robo da
+plataforma a transforma em atribuicao de papel alguns minutos depois. Em 25/09
+a `cloud-coe-automation-new` regravou as tags da conta do OpenAI 13 min depois
+do nosso RBAC, deixou so as de governanca (`automationtype`, `templateVersion`,
+`validateNetworking`) e a atribuicao nunca foi criada; o DocIntel, que nao teve
+tags regravadas, manteve a dele. O sintoma veio em 30/09, quando a function
+voltou a rodar: `401 PermissionDenied` sem a data action
+`.../OpenAI/deployments/chat/completions/action`, com o Document Intelligence
+respondendo 202 na mesma execucao. O documento vai para `error` com a mensagem
+em `error_message` -- o `concluido` no log do worker so diz que ele terminou.
+Conferir: `az resource show --ids <conta> --query tags` e `az role assignment
+list --scope <conta> --assignee <MI>`. Corrigir: `az tag update --operation
+Merge` com a mesma tag do `rbac.bicep` (nao apaga as outras); o papel apareceu
+em minutos, depois `az functionapp restart`. Reprovisionar o RBAC tambem
+resolve, mas o run de infra zera as app settings.
+
+**PowerShell 5.1 nao enumera o que sai do `ConvertFrom-Json` num pipe.** A
+lista inteira vira um objeto so, e `ForEach-Object { $_.campo }` imprime todos
+os valores numa linha. Atribua a uma variavel antes do pipe. E o `az` do
+Windows passa pelo `cmd.exe`: parenteses na `--query` quebram com
+`} was unexpected at this time` -- use `-o json | ConvertFrom-Json`.
+
+**Colar bloco longo na VM perde caracteres.** Um script de 90 linhas chegou com
+pedacos de linha faltando (`-match` sem o operando, `a taolor Red`) e o parser
+acusou `Missing closing '}'`. Script de mais de umas poucas linhas vai como
+`.b64` por e-mail, com o SHA-256 conferido no proprio comando que o executa.
