@@ -14,7 +14,7 @@ Esforço: **XS** < 1h · **S** ~meio dia · **M** ~1–2 dias · **L** ~1 semana
 | ~~5~~ | ~~Confiança por campo e geral~~ | M | alto | **feito** |
 | ~~6~~ | ~~Duplicatas por (invoice, fornecedor)~~ | M | médio | **feito** |
 | 7 | Classificação invoice × packing list | L | alto | — |
-| 8 | Relatório de confiança por fornecedor | M | médio | 5 |
+| ~~8~~ | ~~Relatório de confiança por fornecedor~~ | M | médio | **feito** |
 | 9 | Métricas de processamento por período | M | médio | — |
 | — | `Invoice Type`, `Import Process`, `CSAR`, `PFO`, `##` | ? | ? | **bloqueado** |
 | — | Não-latino; Word/Excel | ? | ? | **escopo indefinido** |
@@ -358,7 +358,16 @@ produz.
 
 ## 8 e 9
 
-- **Relatório de confiança por fornecedor** — depende de 5 e da normalização do 6.
+- **Relatório de confiança por fornecedor** — **feito em 01/10.** Página
+  `/fornecedores` e `GET /suppliers/confidence` (+ `/detail`). Por fornecedor
+  (`supplier_key` do item 6): confiança média e pior campo, invoices com campo
+  a conferir, campos **corrigidos na revisão** sobre campos lidos — a medida de
+  acerto que valida a própria nota — e o campo que mais dá trabalho. Ficam fora
+  documento rejeitado ou com erro e cópia de duplicata, pelas mesmas razões do
+  item 6. O período conta pela data do **documento**: o PATCH recria as
+  invoices, e a data delas é a da última edição. Invoice sem nota (modo local,
+  anterior à 0007) conta como invoice e não entra nas médias. A agregação é
+  pura, em `shared/confidence.py`, e o teste está no `check_rules.py`.
 - **Métricas de processamento por período** — premissa "MÉTRICAS DE PERFORMANCE
   DO AGENTE, DE PROCESSAMENTO E POR PERÍODO".
 

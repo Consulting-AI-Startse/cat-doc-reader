@@ -217,6 +217,53 @@ check("sem nota nenhuma", summarise(None, [None]),
       {"min_field_confidence": None, "mean_field_confidence": None,
        "flagged_fields": 0, "corrected_fields": 0})
 
+print("=== relatorio por fornecedor ===")
+from shared.confidence import field_breakdown, supplier_report
+
+
+def fatura(key, nome, quando, media, minima, marcados=0, header=None, linhas=None,
+           status="needs_review"):
+    return {"supplier_key": key, "supplier": nome, "created_at": quando,
+            "document_id": "doc-" + quando, "document_status": status,
+            "mean_field_confidence": media, "min_field_confidence": minima,
+            "flagged_fields": marcados, "header_fc": header, "lines_fc": linhas or []}
+
+
+ok = {"score": 0.99, "status": "ok"}
+cattini = [
+    fatura("CATTINIFIGLIO", "CATTINI e FIGLIO S.P.A.", "2026-09-10", 0.90, 0.50, 1,
+           {"invoice_number": {"score": 0.5, "status": "ambiguous", "twin": "26-2I00870"},
+            "total": ok}, [{"quantity": ok, "amount": {"score": None, "status": "derived"}}]),
+    fatura("CATTINIFIGLIO", "CATTINI E FIGLIO SPA", "2026-10-01", 0.98, 0.97, 0,
+           {"invoice_number": {"score": 0.5, "status": "corrected", "was": "ambiguous"},
+            "total": ok}, [{"quantity": ok}], status="approved"),
+]
+bosch = [fatura("BOSCHREXROTHDSI", "Bosch Rexroth DSI S.A.S.", "2026-10-01", 0.99, 0.99, 0,
+                {"invoice_number": ok}, [{"quantity": ok}])]
+# Gravada antes da 0007, ou no modo local: conta como invoice, nao como nota.
+antiga = [fatura("TECNORD", "TECNORD s.r.l.", "2026-09-01", None, None)]
+rel = supplier_report(cattini + bosch + antiga)
+por = {l["supplier_key"]: l for l in rel}
+check("o pior fornecedor primeiro", [l["supplier_key"] for l in rel],
+      ["CATTINIFIGLIO", "BOSCHREXROTHDSI", "TECNORD"])
+check("nome exibido e o mais recente", por["CATTINIFIGLIO"]["supplier"], "CATTINI E FIGLIO SPA")
+check("media das medias", por["CATTINIFIGLIO"]["mean_confidence"], 0.94)
+check("pior minima", por["CATTINIFIGLIO"]["min_confidence"], 0.5)
+check("invoices com campo a conferir", por["CATTINIFIGLIO"]["flagged_invoices"], 1)
+# 'derived' nao foi lido: nao conta como pontuado. Sao 3 + 3 campos lidos.
+check("campos pontuados", por["CATTINIFIGLIO"]["fields_scored"], 6)
+check("taxa de correcao", por["CATTINIFIGLIO"]["correction_rate"], round(1 / 6, 4))
+check("metade em revisao", por["CATTINIFIGLIO"]["review_rate"], 0.5)
+check("campo mais fraco", por["CATTINIFIGLIO"]["weakest_field"], "invoice_number")
+check("sem nota: conta a invoice", (por["TECNORD"]["invoices"], por["TECNORD"]["invoices_scored"]),
+      (1, 0))
+check("sem nota: sem media", por["TECNORD"]["mean_confidence"], None)
+campos = {c["field"]: c for c in field_breakdown(cattini)}
+check("invoice_number: 1 ambigua, 1 corrigida",
+      (campos["invoice_number"]["ambiguous"], campos["invoice_number"]["corrected"]), (1, 1))
+# A nota do corrigido nao fala mais do valor gravado: fica fora da media.
+check("corrigido fora da media", campos["invoice_number"]["mean_score"], 0.5)
+
 print()
 if falhas:
     print(f"{len(falhas)} FALHA(S): {falhas}")
