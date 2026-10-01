@@ -378,6 +378,44 @@ check("total que nao fecha e problema",
       any("nao fecha" in v for v in r["validation"]), True)
 check("e derruba a confianca", r["confidence"], 0.50)
 
+print("=== 12. confianca por campo no CIV: so os defeitos reais ===")
+# O indice gravado traz so as 120 piores palavras (o completo vive so em
+# memoria). Basta: sao elas que derrubam um campo. O resto do texto fica sem
+# nota, e campo sem nota nao e marcado.
+palavras = [(w["spans"][0]["offset"], w["spans"][0]["length"], w["confidence"])
+            for w in raw["low_confidence_words"] if w["spans"]]
+civ = {"invoices": [{
+    "invoice_number": inv.get("invoice_number"),
+    "total": inv.get("total"),
+    "line_items": _printed_lines(inv.get("line_items") or []),
+} for inv in raw["structured"]["invoices"]], "confidence": 0.95}
+r = _normalise(civ, None, [], None, content, set(), palavras)
+marcados = set()
+for k, inv in enumerate(r["invoices"]):
+    for campo, e in (inv["field_confidence"] or {}).items():
+        if e["status"] in ("low", "ambiguous", "not_located"):
+            marcados.add("invoice[%d].%s" % (k, campo))
+    for j, l in enumerate(inv["line_items"]):
+        for campo, e in (l["field_confidence"] or {}).items():
+            if e["status"] in ("low", "ambiguous", "not_located"):
+                marcados.add("invoice[%d].line[%d].%s" % (k, j, campo))
+# Os dois defeitos do documento, nas duas rodadas: em 10/09 o modelo devolveu
+# '26-2100870' / 'QIPPO1280' (palavra a 0.57), em 01/10 '26-2I00870' /
+# 'QIPP01280' (palavra limpa, mas com gemeo impresso). A nota tem de achar os
+# dois, em qualquer das leituras.
+DEFEITOS = {"invoice[3].invoice_number", "invoice[4].line[0].purchase_order"}
+# Artefato da fixture: ela grava o valor convertido, e o '50,000' italiano
+# lido como 50000 da 5700000, que nao esta impresso. Em producao o modelo
+# copia '5700,000' e o valor e achado -- quem pega a conversao e a soma.
+TOLERADO = {"invoice[5].line[0].amount"}
+check("os dois defeitos marcados", sorted(DEFEITOS - marcados), [])
+check("e nenhum campo bom", sorted(marcados - DEFEITOS - TOLERADO), [])
+check("a nota vai para validation",
+      sum(1 for v in r["validation"] if "leitura ambigua" in v or "confianca do OCR" in v) >= 2, True)
+check("e o documento vai para revisao", r["confidence"] < 0.85, True)
+check("os 52 campos do prototipo", sum(len(i["field_confidence"] or {}) +
+      sum(len(l["field_confidence"] or {}) for l in i["line_items"]) for i in r["invoices"]), 52)
+
 print()
 if falhas:
     print(f"{len(falhas)} FALHA(S): {falhas}")

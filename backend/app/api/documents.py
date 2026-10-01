@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.deps import get_db, get_storage
 from app.processing import enqueue_processing
+from shared.confidence import summarise
 from shared.dedupe import (
     find_original,
     normalise_invoice_number,
@@ -68,6 +69,7 @@ def _serialize_line(li: InvoicePartNumberItem) -> dict:
         "packaging": li.packaging,
         "exporter": li.exporter,
         "manufacturer": li.manufacturer,
+        "field_confidence": li.field_confidence,
     }
 
 
@@ -82,6 +84,11 @@ def _serialize_invoice(inv: Invoice) -> dict:
         "supplier": inv.supplier,
         "currency": inv.currency,
         "total": inv.total,
+        "field_confidence": inv.field_confidence,
+        "min_field_confidence": inv.min_field_confidence,
+        "mean_field_confidence": inv.mean_field_confidence,
+        "flagged_fields": inv.flagged_fields,
+        "corrected_fields": inv.corrected_fields,
         "duplicate_of": None if original is None else {
             "invoice_id": str(original.id),
             "document_id": str(original.document_id),
@@ -165,6 +172,10 @@ class LineIn(BaseModel):
     packaging: str | None = None
     exporter: str | None = None
     manufacturer: str | None = None
+    # Volta no payload porque o PATCH recria todas as linhas: sem isto a nota
+    # do OCR sumiria no primeiro salvar. A tela marca como 'corrected' o
+    # campo que o revisor editou.
+    field_confidence: dict[str, dict] | None = None
 
 
 class InvoiceIn(BaseModel):
@@ -173,6 +184,7 @@ class InvoiceIn(BaseModel):
     supplier: str | None = None
     currency: str | None = None
     total: str | float | None = None
+    field_confidence: dict[str, dict] | None = None
     line_items: list[LineIn] = []
 
 
@@ -306,6 +318,11 @@ def update_document(
             supplier_key=normalise_supplier(supplier),
             currency=_opt_str(inv_in.currency),
             total=_opt_decimal(inv_in.total),
+            field_confidence=inv_in.field_confidence,
+            # Recalculados a cada salvar, do que veio: e o que conta as
+            # correcoes do revisor no relatorio por fornecedor.
+            **summarise(inv_in.field_confidence,
+                        [li.field_confidence for li in inv_in.line_items]),
         )
         for li in inv_in.line_items:
             inv.line_items.append(
@@ -323,6 +340,7 @@ def update_document(
                     packaging=_opt_str(li.packaging),
                     exporter=_opt_str(li.exporter),
                     manufacturer=_opt_str(li.manufacturer),
+                    field_confidence=li.field_confidence,
                 )
             )
         doc.invoices.append(inv)

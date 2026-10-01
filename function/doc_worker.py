@@ -7,6 +7,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from shared.confidence import summarise
 from shared.config import settings
 from shared.db import SessionLocal
 from shared.dedupe import find_original, normalise_invoice_number, normalise_supplier
@@ -20,6 +21,7 @@ from shared.models import (
 )
 from shared.storage import BlobStorage, get_blob_storage
 
+from pipeline.confidence import LOW_CONFIDENCE
 from pipeline.extractor import DocumentExtractor, MockExtractor, tables_summary
 from pipeline.structurer import LLMStructurer, MockStructurer, candidate_part_numbers
 
@@ -33,6 +35,10 @@ try:
 except ModuleNotFoundError:
     _local = None
 
+# Regua da confianca auto-reportada pelo modelo, que so decide quando nao ha
+# nota por campo (modo local, mock). Com nota por campo a regua e a do campo:
+# o limite do documento tem de ser o mesmo, senao um documento cujo pior campo
+# esta a 0.87 iria para revisao sem nenhuma nota dizendo por que.
 CONFIDENCE_THRESHOLD = 0.90
 
 logger = logging.getLogger("doc_worker")
@@ -133,6 +139,7 @@ def process_document(
         doc.invoices.clear()
         duplicates = []
         for inv in result.get("invoices", []):
+            lines = inv.get("line_items", [])
             invoice = Invoice(
                 invoice_number=inv.get("invoice_number"),
                 invoice_date=_date(inv.get("invoice_date")),
@@ -141,8 +148,11 @@ def process_document(
                 supplier_key=normalise_supplier(inv.get("supplier")),
                 currency=inv.get("currency"),
                 total=_dec(inv.get("total")),
+                field_confidence=inv.get("field_confidence"),
+                **summarise(inv.get("field_confidence"),
+                            [li.get("field_confidence") for li in lines]),
             )
-            for li in inv.get("line_items", []):
+            for li in lines:
                 invoice.line_items.append(
                     InvoicePartNumberItem(
                         part_number=li.get("part_number"),
@@ -158,6 +168,7 @@ def process_document(
                         packaging=li.get("packaging"),
                         exporter=li.get("exporter"),
                         manufacturer=li.get("manufacturer"),
+                        field_confidence=li.get("field_confidence"),
                     )
                 )
             doc.invoices.append(invoice)
@@ -187,6 +198,9 @@ def process_document(
         confidence = result.get("confidence")
         doc.extraction_confidence = confidence
         stored = dict(extraction)
+        # Uma tupla por palavra do documento: no CIV sao ~9 mil. Ja serviu ao
+        # structurer, e gravado viraria megabytes de jsonb sem uso.
+        stored.pop("words", None)
         if stored.get("tables"):
             stored["tables"] = tables_summary(stored["tables"])
         doc.raw_extraction = dict(
@@ -208,7 +222,9 @@ def process_document(
         # Duplicata sempre vai para revisao humana, por mais limpa que a
         # extracao tenha saido: a confianca mede a leitura, nao o fato de a
         # fatura ja ter entrado antes.
-        ok = (confidence or 0) >= CONFIDENCE_THRESHOLD and not duplicates
+        threshold = (LOW_CONFIDENCE if result.get("confidence_source") == "fields"
+                     else CONFIDENCE_THRESHOLD)
+        ok = (confidence or 0) >= threshold and not duplicates
         doc.status = DocumentStatus.extracted if ok else DocumentStatus.needs_review
         db.add(DocumentEvent(document_id=doc.id, event_type=doc.status.value, actor="worker"))
     except Exception as exc:

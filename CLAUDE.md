@@ -38,7 +38,7 @@ o patch chega até lá e quem abre o PR está na seção seguinte.
 |---|---|
 | `backend/`, `frontend/` | `function/pipeline/extractor_local.py` |
 | `shared/shared/` | `function/pipeline/structurer_local.py` |
-| `function/pipeline/structurer.py`, `extractor.py` | `function/doc_worker_local.py` |
+| `function/pipeline/structurer.py`, `extractor.py`, `confidence.py` | `function/doc_worker_local.py` |
 | `function/doc_worker.py`¹, `function_app.py` | `function/requirements-local.txt` |
 | `check_rules.py`, `check_structurer.py`, `check_dedupe.py`, `check_parts.py` | `start-local.sh`, `stop-local.sh` |
 | `DEPLOY.md`, `scripts/` | |

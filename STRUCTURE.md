@@ -56,7 +56,7 @@ Entao:
 packaging vira texto, 0003 alarga os campos livres (incoterm, embalagem, partes
 envolvidas, moeda) depois de um incoterm real estourar VARCHAR(16).
 
-`db/db-setup-v2.sql` e o mesmo schema achatado, na **head 0003**, pra aplicar direto no
+`db/db-setup-v2.sql` e o mesmo schema achatado, na **head 0007**, pra aplicar direto no
 ambiente da CAT (Fase 0 do DEPLOY.md). E **gerado, nao editado a mao**:
 
 ```bash

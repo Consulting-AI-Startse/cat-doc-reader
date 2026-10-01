@@ -4,6 +4,8 @@ import re
 from abc import ABC, abstractmethod
 from typing import Any
 
+from pipeline import confidence as fieldconf
+
 logger = logging.getLogger("structurer")
 
 # Um desvio maior que isto reprova a conferencia aritmetica.
@@ -461,7 +463,7 @@ class AzureOpenAIStructurer(LLMStructurer):
         payload = json.loads(response.choices[0].message.content or "{}")
         numbers, note = _cat_invoice_numbers(content)
         return _normalise(payload, extraction.get("confidence"), numbers, note,
-                          content, exigem_serial)
+                          content, exigem_serial, extraction.get("words"))
 
 
 def _expand_serials(tag: str, li: dict, exige_serial: bool):
@@ -536,13 +538,31 @@ def _expand_serials(tag: str, li: dict, exige_serial: bool):
     return registros, avisos, notas
 
 
+def _record_confidence(fc: dict, registro: dict, content: str, index,
+                       tag: str, issues: list) -> dict:
+    """Nota de um registro gravado. Registro com serial veio da expansao:
+    quantidade e amount nao foram lidos -- sao 1 e unit_price por construcao
+    --, entao saem como 'derived'; o serial e lido, e tem nota propria."""
+    out = dict(fc)
+    serial = registro.get("serial_number")
+    if serial:
+        out["quantity"] = fieldconf.derived()
+        out["amount"] = fieldconf.derived()
+        entry = fieldconf.score_identifier(serial, content, index)
+        out["serial_number"] = entry
+        aviso = fieldconf.describe(tag, "serial_number", serial, entry)
+        if aviso:
+            issues.append(aviso)
+    return out
+
+
 # Status que NAO sao item de fatura. Derrubar por "nao esta na lista de PN
 # liberados" seria errado: 'other_code' existe porque o corpus tem codigo de
 # fornecedor ('15.1301.466'), que nunca estara na PN Liberados e e item real.
 _NAO_E_ITEM = ("not_a_code", "missing")
 
 
-def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None):
+def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None, index=None):
     """Confere PN e aritmetica, separando o que nao e item de fatura.
 
     A linha descartada NAO some: sai de line_items e vai para discarded_lines,
@@ -580,6 +600,16 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None):
         if note:
             issues.append("%s.line[%d]: %s" % (tag, n, note))
 
+        # Pontuada a linha IMPRESSA, antes de _num e da expansao: e o valor
+        # como impresso ('35.564,40') que se acha no texto do OCR.
+        fc = None
+        if index is not None:
+            fc = fieldconf.line_confidence(li, content, index, _num)
+            for field, entry in fc.items():
+                aviso = fieldconf.describe("%s.line[%d]" % (tag, n), field, li.get(field), entry)
+                if aviso:
+                    issues.append(aviso)
+
         qty = _num(li.get("quantity"))
         unit = _num(li.get("unit_price"))
         amount = _num(li.get("amount"))
@@ -605,6 +635,10 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None):
         )
         issues.extend(avisos)
         notas.extend(notas_serial)
+        if fc is not None:
+            for registro in registros:
+                registro["field_confidence"] = _record_confidence(
+                    fc, registro, content, index, "%s.line[%d]" % (tag, n), issues)
         kept.extend(registros)
 
     if descartadas:
@@ -622,7 +656,8 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None):
 
 
 def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
-               cat_note=None, content: str = "", exigem_serial=None) -> dict[str, Any]:
+               cat_note=None, content: str = "", exigem_serial=None,
+               words=None) -> dict[str, Any]:
     """Forca a saida do modelo no contrato do structurer e valida o que der.
 
     O numero da invoice e o do proprio documento: 10 das 28 faturas do corpus
@@ -633,7 +668,12 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
     O total gravado e o total impresso no documento; soma das linhas + frete e
     conferencia, nao fonte. Encargos de nivel de fatura sao rateados em
     unit_price_landed, sem tocar em unit_price.
+
+    `words`: o indice de palavras do Document Intelligence, (offset, length,
+    confidence). Com ele cada campo ganha nota de OCR e a confianca do
+    documento passa a ser a menor delas; sem ele (modo local, mock) nada muda.
     """
+    word_index = fieldconf.WordIndex(words) if words else None
     issues = []
     # Duas listas de proposito. 'issues' sao defeitos e derrubam a confianca
     # para REVIEW_CONFIDENCE; 'notas' sao decisoes de calculo que o revisor
@@ -678,7 +718,7 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
 
         raw_lines = [li for li in (inv.get("line_items") or []) if isinstance(li, dict)]
         kept, line_issues, line_notes, running, descartadas = _check_lines(
-            tag, raw_lines, content, exigem_serial)
+            tag, raw_lines, content, exigem_serial, word_index)
         issues.extend(line_issues)
 
         number = inv.get("invoice_number")
@@ -723,6 +763,22 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
                     "frete + embalagem %.2f" % (tag, reported, computed)
                 )
 
+        header_fc = None
+        if word_index is not None:
+            # O total gravado e o impresso; quando nao ha impresso, e a soma --
+            # calculada, sem nota de OCR.
+            header_fc = {
+                "invoice_number": fieldconf.score_identifier(number, content, word_index),
+                "total": (fieldconf.score_number(inv.get("total"), reported, content, word_index)
+                          if reported is not None else fieldconf.derived()),
+            }
+            header_fc = {k: v for k, v in header_fc.items() if v}
+            for field, entry in header_fc.items():
+                aviso = fieldconf.describe(
+                    tag, field, number if field == "invoice_number" else inv.get("total"), entry)
+                if aviso:
+                    issues.append(aviso)
+
         extra = (packaging_cost or 0.0) + (freight or 0.0)
         per_unit = _landed(kept, extra)
         notas.extend(line_notes)
@@ -755,6 +811,7 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
                 "exporter": li.get("exporter"),
                 "supplier": li.get("supplier"),
                 "manufacturer": li.get("manufacturer"),
+                "field_confidence": li.get("field_confidence"),
             })
 
         supplier, supplier_note = _invoice_supplier(kept)
@@ -771,6 +828,7 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
             "freight": _snum(inv.get("freight")),
             "packaging_cost": _snum(inv.get("packaging_cost")),
             "total": total,
+            "field_confidence": header_fc,
             "line_items": line_items,
             # Nao sao itens, mas tambem nao somem: quem revisa precisa poder
             # ver o que o filtro tirou, e por que.
@@ -784,6 +842,17 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
         except (TypeError, ValueError):
             pass
     confidence = min(candidates) if candidates else 0.0
+    source = "model"
+
+    # A auto-reportada do modelo deixa de decidir quando ha evidencia do OCR:
+    # ela fica em 'model_confidence', para auditoria, e quem governa e o pior
+    # campo. Media esconderia um campo catastrofico.
+    if word_index is not None:
+        piores = fieldconf.document_min(
+            [inv["field_confidence"] for inv in invoices]
+            + [li["field_confidence"] for inv in invoices for li in inv["line_items"]])
+        if piores is not None:
+            confidence, source = piores, "fields"
 
     if issues:
         confidence = min(confidence, REVIEW_CONFIDENCE)
@@ -793,6 +862,8 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
         logger.info("NOTA: %s", nota)
 
     return {"invoices": invoices, "confidence": confidence,
+            "confidence_source": source,
+            "model_confidence": payload.get("confidence"),
             "validation": issues, "notes": notas}
 
 

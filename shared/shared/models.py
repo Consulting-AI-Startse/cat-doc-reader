@@ -114,6 +114,17 @@ class Invoice(Base):
     currency: Mapped[str | None] = mapped_column(String(16))
     total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
 
+    # Confianca por campo, medida no OCR (function/pipeline/confidence.py):
+    # a do cabecalho em JSONB, e os agregados da invoice inteira -- cabecalho e
+    # linhas -- em coluna, porque o relatorio por fornecedor agrupa por elas.
+    # Nulos no modo local, que nao tem nota por palavra, e nas invoices
+    # gravadas antes da 0007.
+    field_confidence: Mapped[dict | None] = mapped_column(JSONB)
+    min_field_confidence: Mapped[float | None] = mapped_column(sa.Float)
+    mean_field_confidence: Mapped[float | None] = mapped_column(sa.Float)
+    flagged_fields: Mapped[int | None] = mapped_column(sa.Integer)
+    corrected_fields: Mapped[int | None] = mapped_column(sa.Integer)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -157,6 +168,7 @@ class InvoicePartNumberItem(Base):
     packaging: Mapped[str | None] = mapped_column(Text)
     exporter: Mapped[str | None] = mapped_column(Text)
     manufacturer: Mapped[str | None] = mapped_column(Text)
+    field_confidence: Mapped[dict | None] = mapped_column(JSONB)
 
     invoice: Mapped[Invoice] = relationship(back_populates="line_items")
 

@@ -6,6 +6,31 @@ export type DocumentStatus =
   | "approved"
   | "rejected"
   | "error";
+/** Nota do OCR para um campo extraído (function/pipeline/confidence.py).
+ *  - low: a palavra foi lida com confiança baixa
+ *  - ambiguous: o documento também traz o valor com um caractere confundível
+ *    trocado (`twin`), ex.: 26-2I00870 × 26-2100870
+ *  - not_located: o valor não aparece no texto do OCR
+ *  - derived / unanchored: calculado, ou sem part number para ancorar o número
+ *  - corrected: o revisor editou; `was` guarda o status anterior */
+export type FieldStatus =
+  | "ok"
+  | "low"
+  | "ambiguous"
+  | "not_located"
+  | "derived"
+  | "unanchored"
+  | "corrected";
+
+export interface FieldConfidence {
+  score: number | null;
+  status: FieldStatus;
+  twin?: string;
+  was?: FieldStatus;
+}
+
+export type FieldConfidenceMap = Record<string, FieldConfidence>;
+
 // Uma linha de part number (o grão do output). Todos os campos podem vir nulos.
 export interface LineItem {
   part_number: string | null;
@@ -22,6 +47,8 @@ export interface LineItem {
   packaging: string | number | null;
   exporter: string | null;
   manufacturer: string | null;
+  /** Nulo no modo local e nas linhas gravadas antes da migração 0007. */
+  field_confidence: FieldConfidenceMap | null;
 }
 
 // A fatura da qual esta e copia. Preenchido so na copia: a primeira entrada e
@@ -41,6 +68,12 @@ export interface Invoice {
   supplier: string | null;
   currency: string | null;
   total: string | number | null;
+  /** Cabeçalho (invoice_number, total). Os agregados cobrem cabeçalho e linhas. */
+  field_confidence: FieldConfidenceMap | null;
+  min_field_confidence: number | null;
+  mean_field_confidence: number | null;
+  flagged_fields: number | null;
+  corrected_fields: number | null;
   duplicate_of: DuplicateOf | null;
   line_items: LineItem[];
 }
@@ -115,6 +148,7 @@ export interface LineInput {
   packaging: string | null;
   exporter: string | null;
   manufacturer: string | null;
+  field_confidence: FieldConfidenceMap | null;
 }
 
 export interface InvoiceInput {
@@ -123,6 +157,7 @@ export interface InvoiceInput {
   supplier: string | null;
   currency: string | null;
   total: string | null;
+  field_confidence: FieldConfidenceMap | null;
   line_items: LineInput[];
 }
 

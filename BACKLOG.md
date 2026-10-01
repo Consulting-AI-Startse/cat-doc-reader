@@ -11,7 +11,7 @@ Esforço: **XS** < 1h · **S** ~meio dia · **M** ~1–2 dias · **L** ~1 semana
 | 2 | `Unit` e `Unit Weight` | S | médio | — |
 | ~~3~~ | ~~Lista de PN: tabela, import CSV e checagem~~ | M | **muito alto** | **feito** |
 | ~~4~~ | ~~Serial Number~~ | M | alto | **feito** |
-| 5 | Confiança por campo e geral | M | alto | — |
+| ~~5~~ | ~~Confiança por campo e geral~~ | M | alto | **feito** |
 | ~~6~~ | ~~Duplicatas por (invoice, fornecedor)~~ | M | médio | **feito** |
 | 7 | Classificação invoice × packing list | L | alto | — |
 | 8 | Relatório de confiança por fornecedor | M | médio | 5 |
@@ -265,7 +265,36 @@ Então "não é motor ⇒ é PIN" vale hoje, mas as outras categorias ainda não
 mapeadas pela CAT. A classificação tem de ser uma regra nomeada e trocável, não
 um `if` espalhado.
 
-## 5. Confiança por campo e geral (M)
+## 5. Confiança por campo e geral (M) — feito em 01/10
+
+**Como ficou.** `function/pipeline/confidence.py` dá nota a cada campo com três
+sinais, e não um só:
+
+- **leitura fraca**: menor confiança de palavra na **pior** ocorrência do valor
+  (pela melhor, o `26-2100870` a 0.573 sumia — ele aparece duas vezes);
+- **leitura ambígua**: o documento também traz o valor com um caractere
+  confundível trocado (O/0, I/1, S/5, B/8, Z/2). Na rodada de 01/10 do CIV o
+  modelo copiou `26-2I00870` de uma página onde o OCR leu o `I` com confiança
+  **alta**: a palavra não acusa nada, o gêmeo `26-2100870` acusa;
+- **não localizado**: o valor não aparece no texto.
+
+Medido no CIV, nas duas rodadas (10/09 e 01/10): 52 campos, os 2 defeitos
+marcados, nenhum campo bom. Teste em `check_structurer.py` seção 12, e as
+regras isoladas no `check_rules.py`, que roda no CI.
+
+Número é procurado **como impresso** (`35.564,40`), então a nota é dada dentro
+do `_normalise`, antes do `_snum`. Com nota por campo, a confiança do
+documento é a mínima dos campos e o limite do documento é o do campo (0.85): a
+auto-reportada do modelo deixa de decidir e fica em `model_confidence`. Sem
+índice de palavras (modo local, mock), nada muda.
+
+Gravação: migração `0007` (JSONB por linha e por cabeçalho, agregados em
+coluna na invoice). O `PATCH` recria as linhas, então a nota viaja no payload;
+a tela marca como `corrected` o campo cujo valor mudou, e isso alimenta o
+item 8.
+
+O texto abaixo é o plano original, mantido como registro.
+
 
 Requisito escrito ("CONFIDENCE SCORE GERAL E POR CAMPO"). Já prototipado e
 validado: 52 campos do CIV, **2 marcados** (`26-2100870`, `QIPPO1280`), **zero

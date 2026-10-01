@@ -34,21 +34,6 @@ class DocumentExtractor(ABC):
         ...
 
 
-def _field(fields: dict, name: str):
-    """prebuilt-invoice field values, tolerant of SDK version differences."""
-    f = fields.get(name) if fields else None
-    if f is None:
-        return None
-    for attr in ("value_string", "value_date", "value_number", "value_integer"):
-        v = getattr(f, attr, None)
-        if v is not None:
-            return str(v) if attr == "value_date" else v
-    currency = getattr(f, "value_currency", None)
-    if currency is not None:
-        return getattr(currency, "amount", None)
-    return getattr(f, "content", None)
-
-
 def _spans(obj):
     """offset/length dentro de content -- leve e permite achar o valor no texto.
 
@@ -105,13 +90,17 @@ def _tables_of(result):
 
 
 def _pages_and_quality(result):
-    """Resumo por pagina, palavras ruins e um placar do documento.
+    """Resumo por pagina, palavras ruins, um placar do documento e o indice.
 
-    A lista completa de palavras nao entra: 35 paginas viram megabytes. O que
-    fica e o suficiente para responder "quao bem o OCR leu este documento".
+    O indice -- (offset, length, confidence) de TODA palavra -- e o que da nota
+    a cada campo extraido (pipeline/confidence.py). Ele vive so em memoria: o
+    doc_worker o tira antes de gravar, porque 35 paginas viram megabytes no
+    jsonb. O que fica gravado e o suficiente para responder "quao bem o OCR
+    leu este documento".
     """
     pages = []
     candidates = []
+    index = []
     total_words = 0
     all_confidences = []
 
@@ -141,6 +130,9 @@ def _pages_and_quality(result):
 
         for w in words:
             c = getattr(w, "confidence", None)
+            span = getattr(w, "span", None)
+            if c is not None and span is not None:
+                index.append((getattr(span, "offset", None), getattr(span, "length", None), c))
             if c is not None and c < LOW_CONFIDENCE:
                 candidates.append({
                     "page": page_number,
@@ -178,7 +170,7 @@ def _pages_and_quality(result):
         "threshold": LOW_CONFIDENCE,
         "sparse_page_words": SPARSE_PAGE_WORDS,
     }
-    return pages, low, quality
+    return pages, low, quality, index
 
 
 def tables_summary(tables):
@@ -197,9 +189,12 @@ def tables_summary(tables):
 
 
 class DocumentIntelligenceExtractor(DocumentExtractor):
-    """prebuilt-invoice pre-pass. Returns the structured fields it can find plus
-    the full document text, which the structurer mines for the fields the
-    prebuilt model does not return (incoterm, packaging, exporter, ...)."""
+    """OCR com prebuilt-layout: texto em markdown, tabelas e palavras com
+    confianca. Quem tira os campos do texto e o structurer.
+
+    Ate 17/09 era prebuilt-invoice, que trazia campos prontos. Trocado por
+    layout, que trata o pacote inteiro -- o CIV tem 35 paginas e 6 invoices de
+    6 fornecedores, e o modelo de invoice supoe uma por documento."""
 
     MODEL_ID = "prebuilt-layout"
 
@@ -241,46 +236,21 @@ class DocumentIntelligenceExtractor(DocumentExtractor):
         )
         result = poller.result()    
 
-        invoices = []
-        confidences = []
-        for document in result.documents or []:
-            fields = document.fields or {}
-            if document.confidence is not None:
-                confidences.append(float(document.confidence))
-
-            items = []
-            items_field = fields.get("Items")
-            for entry in (getattr(items_field, "value_array", None) or []):
-                item_fields = getattr(entry, "value_object", None) or {}
-                items.append({
-                    "part_number": _field(item_fields, "ProductCode"),
-                    "description": _field(item_fields, "Description"),
-                    "quantity": _field(item_fields, "Quantity"),
-                    "unit_price": _field(item_fields, "UnitPrice"),
-                    "amount": _field(item_fields, "Amount"),
-                    "purchase_order": _field(fields, "PurchaseOrder"),
-                    "supplier": _field(fields, "VendorName"),
-                })
-
-            invoices.append({
-                "invoice_number": _field(fields, "InvoiceId"),
-                "invoice_date": _field(fields, "InvoiceDate"),
-                "currency": _field(fields, "CurrencyCode"),
-                "total": _field(fields, "InvoiceTotal"),
-                "items": items,
-            })
-
+        # O layout nao devolve 'documents': os campos prontos do pre-passe e a
+        # confianca dele eram do prebuilt-invoice. Ficam as chaves, vazias,
+        # porque o structurer e o mock ainda as leem.
         text = result.content or ""
-        pages, low_words, quality = _pages_and_quality(result)
+        pages, low_words, quality, words = _pages_and_quality(result)
         return {
             "model": self.MODEL_ID,
-            "confidence": min(confidences) if confidences else None,
-            "invoices": invoices,
+            "confidence": None,
+            "invoices": [],
             "content": text,
             "tables": _tables_of(result),
             "pages": pages,
             "low_confidence_words": low_words,
             "quality": quality,
+            "words": words,
         }
 
 

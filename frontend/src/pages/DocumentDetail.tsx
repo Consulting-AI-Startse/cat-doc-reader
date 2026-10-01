@@ -8,10 +8,16 @@ import {
   rejectDocument,
   updateDocument,
 } from "../api/documents";
-import type { DocumentDetail as Detail, DocumentUpdate } from "../types/document";
+import type {
+  DocumentDetail as Detail,
+  DocumentUpdate,
+  FieldConfidence,
+  FieldConfidenceMap,
+} from "../types/document";
 import { StatusBadge } from "../components/StatusBadge";
 import { canReview, isPending } from "../lib/status";
 import { EMPTY, money } from "../lib/format";
+import { fcClass, fcTitle, pct, withCorrections } from "../lib/confidence";
 
 const inputCls =
   "w-full rounded-lg border border-neutral-300 bg-white px-2 py-1 text-xs text-neutral-800 focus:border-neutral-900 focus:outline-none focus:ring-1 focus:ring-neutral-900";
@@ -30,7 +36,13 @@ interface LineForm {
   packaging: string;
   exporter: string;
   manufacturer: string;
+  // Nota do OCR e os valores como vieram da extração: no salvar, o campo cujo
+  // valor mudou vira 'corrected' (lib/confidence.ts).
+  _fc: FieldConfidenceMap | null;
+  _orig: Record<string, string>;
 }
+
+type LineField = Exclude<keyof LineForm, "_fc" | "_orig">;
 
 interface InvoiceForm {
   invoice_number: string;
@@ -38,34 +50,48 @@ interface InvoiceForm {
   supplier: string;
   currency: string;
   total: string;
+  _fc: FieldConfidenceMap | null;
+  _orig: Record<string, string>;
   line_items: LineForm[];
 }
+
+type InvoiceField = Exclude<keyof InvoiceForm, "line_items" | "_fc" | "_orig">;
 
 const str = (v: unknown): string => (v == null ? "" : String(v));
 
 function buildForm(d: Detail): InvoiceForm[] {
-  return d.invoices.map((inv) => ({
-    invoice_number: str(inv.invoice_number),
-    invoice_date: str(inv.invoice_date),
-    supplier: str(inv.supplier),
-    currency: str(inv.currency),
-    total: str(inv.total),
-    line_items: inv.line_items.map((li) => ({
-      part_number: str(li.part_number),
-      serial_number: str(li.serial_number),
-      description: str(li.description),
-      quantity: str(li.quantity),
-      unit_price: str(li.unit_price),
-      amount: str(li.amount),
-      purchase_order: str(li.purchase_order),
-      incoterm: str(li.incoterm),
-      country_of_origin: str(li.country_of_origin),
-      domestic_freight: str(li.domestic_freight),
-      packaging: str(li.packaging),
-      exporter: str(li.exporter),
-      manufacturer: str(li.manufacturer),
-    })),
-  }));
+  return d.invoices.map((inv) => {
+    const head = {
+      invoice_number: str(inv.invoice_number),
+      invoice_date: str(inv.invoice_date),
+      supplier: str(inv.supplier),
+      currency: str(inv.currency),
+      total: str(inv.total),
+    };
+    return {
+      ...head,
+      _fc: inv.field_confidence,
+      _orig: head,
+      line_items: inv.line_items.map((li) => {
+        const values = {
+          part_number: str(li.part_number),
+          serial_number: str(li.serial_number),
+          description: str(li.description),
+          quantity: str(li.quantity),
+          unit_price: str(li.unit_price),
+          amount: str(li.amount),
+          purchase_order: str(li.purchase_order),
+          incoterm: str(li.incoterm),
+          country_of_origin: str(li.country_of_origin),
+          domestic_freight: str(li.domestic_freight),
+          packaging: str(li.packaging),
+          exporter: str(li.exporter),
+          manufacturer: str(li.manufacturer),
+        };
+        return { ...values, _fc: li.field_confidence, _orig: values };
+      }),
+    };
+  });
 }
 
 function toPayload(invoices: InvoiceForm[]): DocumentUpdate {
@@ -77,6 +103,7 @@ function toPayload(invoices: InvoiceForm[]): DocumentUpdate {
       supplier: orNull(inv.supplier),
       currency: orNull(inv.currency),
       total: orNull(inv.total),
+      field_confidence: withCorrections(inv._fc, inv._orig, inv as unknown as Record<string, string>),
       line_items: inv.line_items.map((l) => ({
         part_number: orNull(l.part_number),
         serial_number: orNull(l.serial_number),
@@ -91,6 +118,7 @@ function toPayload(invoices: InvoiceForm[]): DocumentUpdate {
         packaging: orNull(l.packaging),
         exporter: orNull(l.exporter),
         manufacturer: orNull(l.manufacturer),
+        field_confidence: withCorrections(l._fc, l._orig, l as unknown as Record<string, string>),
       })),
     })),
   };
@@ -110,6 +138,8 @@ const emptyLine = (): LineForm => ({
   packaging: "",
   exporter: "",
   manufacturer: "",
+  _fc: null,
+  _orig: {},
 });
 
 export function DocumentDetail() {
@@ -160,12 +190,12 @@ export function DocumentDetail() {
   }
   const busy = save.isPending || approve.isPending || reject.isPending;
 
-  function setInv(i: number, k: keyof Omit<InvoiceForm, "line_items">, v: string) {
+  function setInv(i: number, k: InvoiceField, v: string) {
     setForm((f) => (f ? f.map((inv, j) => (j === i ? { ...inv, [k]: v } : inv)) : f));
   }
   // Aplica um valor a TODAS as linhas do invoice. Restou só o Exportador, que
   // continua por linha no modelo; o Fornecedor subiu para a invoice na 0004.
-  function setAllLines(i: number, k: keyof LineForm, v: string) {
+  function setAllLines(i: number, k: LineField, v: string) {
     setForm((f) =>
       f
         ? f.map((inv, j) =>
@@ -174,7 +204,7 @@ export function DocumentDetail() {
         : f
     );
   }
-  function setLine(i: number, li: number, k: keyof LineForm, v: string) {
+  function setLine(i: number, li: number, k: LineField, v: string) {
     setForm((f) =>
       f
         ? f.map((inv, j) =>
@@ -207,7 +237,16 @@ export function DocumentDetail() {
       f
         ? [
             ...f,
-            { invoice_number: "", invoice_date: "", supplier: "", currency: "", total: "", line_items: [emptyLine()] },
+            {
+              invoice_number: "",
+              invoice_date: "",
+              supplier: "",
+              currency: "",
+              total: "",
+              _fc: null,
+              _orig: {},
+              line_items: [emptyLine()],
+            },
           ]
         : f
     );
@@ -250,9 +289,7 @@ export function DocumentDetail() {
                 </h1>
                 <p className="mt-0.5 text-xs text-neutral-400">
                   {data.invoices.length} invoice(s)
-                  {data.extraction_confidence != null && (
-                    <> · confiança {(data.extraction_confidence * 100).toFixed(0)}%</>
-                  )}
+                  <DocConfidence data={data} />
                 </p>
               </div>
               {editable && (
@@ -355,23 +392,24 @@ export function DocumentDetail() {
                       </Link>
                     </div>
                   )}
+                  <InvoiceConfidence inv={data.invoices[i]} />
                   <div className="mb-3 flex items-start justify-between gap-3">
                     <div className="grid flex-1 grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
                       {editable ? (
                         <>
-                          <FieldInput label="Nº invoice" value={inv.invoice_number} onChange={(v) => setInv(i, "invoice_number", v)} />
+                          <FieldInput label="Nº invoice" conf={inv._fc?.invoice_number} value={inv.invoice_number} onChange={(v) => setInv(i, "invoice_number", v)} />
                           <FieldInput label="Data" type="date" value={inv.invoice_date} onChange={(v) => setInv(i, "invoice_date", v)} />
                           <FieldInput label="Moeda" value={inv.currency} onChange={(v) => setInv(i, "currency", v)} />
-                          <FieldInput label="Total" value={inv.total} onChange={(v) => setInv(i, "total", v)} />
+                          <FieldInput label="Total" conf={inv._fc?.total} value={inv.total} onChange={(v) => setInv(i, "total", v)} />
                           <FieldInput label="Fornecedor" value={inv.supplier} onChange={(v) => setInv(i, "supplier", v)} />
                           <FieldInput label="Exportador" value={inv.line_items[0]?.exporter ?? ""} onChange={(v) => setAllLines(i, "exporter", v)} />
                         </>
                       ) : (
                         <>
-                          <ReadField label="Nº invoice" value={data.invoices[i]?.invoice_number} />
+                          <ReadField label="Nº invoice" conf={inv._fc?.invoice_number} value={data.invoices[i]?.invoice_number} />
                           <ReadField label="Data" value={data.invoices[i]?.invoice_date} />
                           <ReadField label="Moeda" value={data.invoices[i]?.currency} />
-                          <ReadField label="Total" value={money(data.invoices[i]?.total ?? null, data.invoices[i]?.currency ?? null)} />
+                          <ReadField label="Total" conf={inv._fc?.total} value={money(data.invoices[i]?.total ?? null, data.invoices[i]?.currency ?? null)} />
                           <ReadField label="Fornecedor" value={data.invoices[i]?.supplier} />
                           <ReadField label="Exportador" value={inv.line_items[0]?.exporter} />
                         </>
@@ -412,13 +450,13 @@ export function DocumentDetail() {
                           <tr key={li}>
                             {editable ? (
                               <>
-                                <Cell><input className={inputCls} value={l.part_number} onChange={(e) => setLine(i, li, "part_number", e.target.value)} /></Cell>
-                                <Cell><input className={inputCls} value={l.serial_number} onChange={(e) => setLine(i, li, "serial_number", e.target.value)} /></Cell>
+                                <Cell><input className={`${inputCls} ${fcClass(l._fc?.part_number)}`} title={fcTitle(l._fc?.part_number)} value={l.part_number} onChange={(e) => setLine(i, li, "part_number", e.target.value)} /></Cell>
+                                <Cell><input className={`${inputCls} ${fcClass(l._fc?.serial_number)}`} title={fcTitle(l._fc?.serial_number)} value={l.serial_number} onChange={(e) => setLine(i, li, "serial_number", e.target.value)} /></Cell>
                                 <Cell wide><input className={inputCls} value={l.description} onChange={(e) => setLine(i, li, "description", e.target.value)} /></Cell>
-                                <Cell><input className={inputCls} inputMode="decimal" value={l.quantity} onChange={(e) => setLine(i, li, "quantity", e.target.value)} /></Cell>
-                                <Cell><input className={inputCls} inputMode="decimal" value={l.unit_price} onChange={(e) => setLine(i, li, "unit_price", e.target.value)} /></Cell>
-                                <Cell><input className={inputCls} inputMode="decimal" value={l.amount} onChange={(e) => setLine(i, li, "amount", e.target.value)} /></Cell>
-                                <Cell><input className={inputCls} value={l.purchase_order} onChange={(e) => setLine(i, li, "purchase_order", e.target.value)} /></Cell>
+                                <Cell><input className={`${inputCls} ${fcClass(l._fc?.quantity)}`} title={fcTitle(l._fc?.quantity)} inputMode="decimal" value={l.quantity} onChange={(e) => setLine(i, li, "quantity", e.target.value)} /></Cell>
+                                <Cell><input className={`${inputCls} ${fcClass(l._fc?.unit_price)}`} title={fcTitle(l._fc?.unit_price)} inputMode="decimal" value={l.unit_price} onChange={(e) => setLine(i, li, "unit_price", e.target.value)} /></Cell>
+                                <Cell><input className={`${inputCls} ${fcClass(l._fc?.amount)}`} title={fcTitle(l._fc?.amount)} inputMode="decimal" value={l.amount} onChange={(e) => setLine(i, li, "amount", e.target.value)} /></Cell>
+                                <Cell><input className={`${inputCls} ${fcClass(l._fc?.purchase_order)}`} title={fcTitle(l._fc?.purchase_order)} value={l.purchase_order} onChange={(e) => setLine(i, li, "purchase_order", e.target.value)} /></Cell>
                                 <Cell><input className={inputCls} value={l.incoterm} onChange={(e) => setLine(i, li, "incoterm", e.target.value)} /></Cell>
                                 <Cell><input className={inputCls} value={l.country_of_origin} onChange={(e) => setLine(i, li, "country_of_origin", e.target.value)} /></Cell>
                                 <Cell><input className={inputCls} value={l.manufacturer} onChange={(e) => setLine(i, li, "manufacturer", e.target.value)} /></Cell>
@@ -430,13 +468,13 @@ export function DocumentDetail() {
                               </>
                             ) : (
                               <>
-                                <td className="py-1.5 pr-2 font-mono text-neutral-700">{l.part_number || EMPTY}</td>
-                                <td className="py-1.5 pr-2 font-mono text-neutral-600">{l.serial_number || EMPTY}</td>
+                                <td className={`py-1.5 pr-2 font-mono text-neutral-700 ${fcClass(l._fc?.part_number)}`} title={fcTitle(l._fc?.part_number)}>{l.part_number || EMPTY}</td>
+                                <td className={`py-1.5 pr-2 font-mono text-neutral-600 ${fcClass(l._fc?.serial_number)}`} title={fcTitle(l._fc?.serial_number)}>{l.serial_number || EMPTY}</td>
                                 <td className="py-1.5 pr-2 text-neutral-800">{l.description || EMPTY}</td>
-                                <td className="py-1.5 pr-2 text-right tabular text-neutral-600">{l.quantity || EMPTY}</td>
-                                <td className="py-1.5 pr-2 text-right tabular text-neutral-600">{money(l.unit_price || null, inv.currency || null)}</td>
-                                <td className="py-1.5 pr-2 text-right tabular text-neutral-700">{money(l.amount || null, inv.currency || null)}</td>
-                                <td className="py-1.5 pr-2 font-mono text-neutral-500">{l.purchase_order || EMPTY}</td>
+                                <td className={`py-1.5 pr-2 text-right tabular text-neutral-600 ${fcClass(l._fc?.quantity)}`} title={fcTitle(l._fc?.quantity)}>{l.quantity || EMPTY}</td>
+                                <td className={`py-1.5 pr-2 text-right tabular text-neutral-600 ${fcClass(l._fc?.unit_price)}`} title={fcTitle(l._fc?.unit_price)}>{money(l.unit_price || null, inv.currency || null)}</td>
+                                <td className={`py-1.5 pr-2 text-right tabular text-neutral-700 ${fcClass(l._fc?.amount)}`} title={fcTitle(l._fc?.amount)}>{money(l.amount || null, inv.currency || null)}</td>
+                                <td className={`py-1.5 pr-2 font-mono text-neutral-500 ${fcClass(l._fc?.purchase_order)}`} title={fcTitle(l._fc?.purchase_order)}>{l.purchase_order || EMPTY}</td>
                                 <td className="py-1.5 pr-2 text-neutral-500">{l.incoterm || EMPTY}</td>
                                 <td className="py-1.5 pr-2 text-neutral-500">{l.country_of_origin || EMPTY}</td>
                                 <td className="py-1.5 pr-2 text-neutral-500">{l.manufacturer || EMPTY}</td>
@@ -520,26 +558,61 @@ function FieldInput({
   value,
   onChange,
   type = "text",
+  conf,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: string;
+  conf?: FieldConfidence;
 }) {
   return (
-    <label className="block">
+    <label className="block" title={fcTitle(conf)}>
       <span className="text-[11px] uppercase tracking-wide text-neutral-400">{label}</span>
-      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} className={`mt-0.5 ${inputCls}`} />
+      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} className={`mt-0.5 ${inputCls} ${fcClass(conf)}`} />
     </label>
   );
 }
 
-function ReadField({ label, value }: { label: string; value: ReactNode }) {
+function ReadField({ label, value, conf }: { label: string; value: ReactNode; conf?: FieldConfidence }) {
   return (
-    <div>
+    <div title={fcTitle(conf)}>
       <dt className="text-[11px] uppercase tracking-wide text-neutral-400">{label}</dt>
-      <dd className="mt-0.5 text-sm font-medium text-neutral-800">{value == null || value === "" ? EMPTY : value}</dd>
+      <dd className={`mt-0.5 rounded px-0.5 text-sm font-medium text-neutral-800 ${fcClass(conf)}`}>
+        {value == null || value === "" ? EMPTY : value}
+      </dd>
     </div>
+  );
+}
+
+/** Mínima e média dos campos. Sem nota por campo (modo local, documento de
+ *  antes da 0007), sobra a confiança que o próprio modelo declarou — e a tela
+ *  diz isso, porque ela não vale o mesmo que a do OCR. */
+function DocConfidence({ data }: { data: Detail }) {
+  const mins = data.invoices.map((v) => v.min_field_confidence).filter((v): v is number => v != null);
+  const means = data.invoices.map((v) => v.mean_field_confidence).filter((v): v is number => v != null);
+  if (mins.length > 0) {
+    const mean = means.length ? means.reduce((a, b) => a + b, 0) / means.length : null;
+    return (
+      <> · confiança do OCR: mínima {pct(Math.min(...mins))} · média {pct(mean)}</>
+    );
+  }
+  if (data.extraction_confidence != null) {
+    return <> · confiança {pct(data.extraction_confidence)} (declarada pelo modelo)</>;
+  }
+  return null;
+}
+
+function InvoiceConfidence({ inv }: { inv: Detail["invoices"][number] | undefined }) {
+  if (!inv || inv.min_field_confidence == null) return null;
+  const flagged = inv.flagged_fields ?? 0;
+  const corrected = inv.corrected_fields ?? 0;
+  return (
+    <p className="mb-2 text-[11px] text-neutral-500">
+      Confiança do OCR: mínima {pct(inv.min_field_confidence)} · média {pct(inv.mean_field_confidence)}
+      {flagged > 0 && <span className="ml-1 font-medium text-amber-700">· {flagged} campo(s) a conferir</span>}
+      {corrected > 0 && <span className="ml-1 text-emerald-700">· {corrected} corrigido(s)</span>}
+    </p>
   );
 }
 
