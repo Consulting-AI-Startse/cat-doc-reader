@@ -12,7 +12,56 @@ estado do PR.
 
 ---
 
-## 2026-10-01 — leva 10: serial só expande peça que exige · **publicada**
+## 2026-10-01 — leva 11: confiança por campo e página por fornecedor · **pronta**, base conferida
+
+Itens 5 e 8 do `BACKLOG.md` numa leva só: o 8 depende das colunas do 5, e uma
+leva evita duas rodadas de migração e deploy. 21 arquivos (13 modificados, 8
+novos), por ZIP em base64 + script autocontido. Branch sugerida:
+`feat/confianca-por-campo`.
+
+**Base conferida pelos blobs que a VM reportou (`origin/main`).** Dois arquivos
+vieram na base da leva 10, não no "depois": a leva 10 está em produção mas não
+na `main` (ver a entrada dela). O script aceita as duas bases para
+`structurer.py` e `check_structurer.py`, e o "depois" já inclui a correção do
+serial — aplicada direto na `main`, a leva 11 leva a 10 junto.
+
+- confiança por campo medida no OCR: palavra fraca (pior ocorrência), gêmeo
+  confundível impresso no texto, valor não localizado. A do modelo deixa de
+  decidir; limite 0.85, a calibrar com o gabarito em produção
+- migração `0007`: `field_confidence` JSONB na invoice e na linha, agregados em
+  coluna na invoice. Só colunas: sem `GRANT` novo
+- `db-setup-v2.sql` regerado na head `0007` (estava na `0003`)
+- página `/fornecedores` e `GET /suppliers/confidence` (+ `/detail`)
+
+**Ordem em produção, que importa:** o `alembic upgrade` roda no webssh do
+fastapi, com o código publicado lá, e a `0007` só chega com o deploy do
+backend. Então: backend → migração → restart do fastapi → function →
+frontend. Entre o backend e a migração a tela de revisão dá erro; a function
+antiga segue gravando, porque as colunas novas são nulas.
+
+O script confere, antes de escrever, que o `raw-civ-cap.json` da VM não é o do
+CIV gravado com o bug do serial (`cc02235d-...`): com ele a seção 12 do
+`check_structurer.py` falha com razão.
+
+Script testado com PowerShell 5.1 e git do Windows, checkout CRLF, `build.ps1`
+de verdade: aplica limpo (sem e com a leva 10 na base), já aplicada, arquivo
+modificado só do lado da CAT, arquivo novo já existente, CIV com o bug, CIV
+ausente, `.b64` corrompido.
+
+| | |
+|---|---|
+| SHA-256 do `aplicar-leva11.b64` | `7cebe7c1d19f6119c12d34c38110af677a3ecf206d79ac52c256a4d444e8a50d` |
+| SHA-256 do `leva11-arquivos.b64` | `cefbbf16961d8c8b465faca1dd56245c53684939804a41c094ec5f187591f9ad` |
+| SHA-256 do `leva11-arquivos.zip` | `da2643efad8e79d0e8b781f0424c66ed64bb1082c741f770470f01dcf96ad3ad` |
+
+---
+
+## 2026-10-01 — leva 10: serial só expande peça que exige · **publicada da branch**, PR não merjado
+
+**Em produção em 01/10, mas não na `main`.** Conferido pelos blobs que a VM
+reportou para a leva 11: `origin/main` ainda tem `structurer.py` em `f4f965a5`
+e `check_structurer.py` em `9eaa4c8b`, a base desta leva. O deploy saiu da
+branch. A leva 11 inclui esta.
 
 **Em produção em 01/10.** A base foi conferida na VM antes do envio
 (`origin/main`, os dois blobs como previstos). O CIV reenviado
