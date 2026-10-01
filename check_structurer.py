@@ -35,6 +35,33 @@ content = raw["content"]
 
 # Remonta o payload do modelo a partir do que ficou gravado, e injeta o
 # encargo de embalagem que a fatura CD970373103 imprime.
+def _printed_lines(line_items):
+    """Desfaz a expansao por serial: o que esta gravado e um registro por
+    serial, e o modelo devolve uma linha por linha impressa.
+
+    O CIV de 01/10 foi gravado com o bug do serial letra a letra: as 128 pecas
+    de 561-7001 da Bosch viraram 18 registros de 1, e a quantidade impressa se
+    perdeu na gravacao. Juntar os 18 devolve UMA linha -- que e o que importa
+    para a contagem --, mas com quantidade 18, que e o que sobrou.
+    """
+    out = []
+    for l in line_items:
+        prev = out[-1] if out else None
+        if (l.get("serial_number") and prev is not None
+                and prev.get("serial_numbers") is not None
+                and prev["part_number"] == l.get("part_number")
+                and prev.get("unit_price") == l.get("unit_price")):
+            prev["serial_numbers"].append(l["serial_number"])
+            prev["quantity"] = str(len(prev["serial_numbers"]))
+            prev["amount"] = "%.2f" % (float(prev["amount"]) + float(l["amount"]))
+            continue
+        l = dict(l)
+        if l.get("serial_number"):
+            l["serial_numbers"] = [l["serial_number"]]
+        out.append(l)
+    return out
+
+
 payload = {"invoices": [], "confidence": 0.9}
 for inv in raw["structured"]["invoices"]:
     payload["invoices"].append({
@@ -42,7 +69,7 @@ for inv in raw["structured"]["invoices"]:
         "invoice_date": inv.get("invoice_date"),
         "currency": inv.get("currency"),
         "total": inv.get("total"),
-        "line_items": [dict(l) for l in (inv.get("line_items") or [])],
+        "line_items": _printed_lines(inv.get("line_items") or []),
     })
 payload["invoices"][0]["packaging_cost"] = "603,00"
 
@@ -88,7 +115,15 @@ check("normalizado de '5P-1465'", by_pn["5P-1465"]["part_number_normalised"], "5
 
 print("=== 3. normalizado casa com a coluna Material do gabarito ===")
 norm = {l["part_number_normalised"] for l in lines if l["part_number_status"] in ("cat", "not_printed")}
-check("materiais do gabarito cobertos", len(GABARITO_MATERIAL & norm), 8)
+# O que se testa aqui e a NORMALIZACAO: todo part number CAT que sai dela tem
+# de ser um Material do gabarito. Quantos dos 8 aparecem depende de qual codigo
+# o modelo escolheu naquela rodada -- no CIV de 01/10 ele pegou o codigo do
+# fornecedor '10191557' para a CD970373103, que em 10/09 tinha saido 6637238.
+# Cobrar os 8 aqui seria testar o modelo, e temperature=0 nao e determinismo.
+check("todo normalizado CAT esta no gabarito", sorted(norm - GABARITO_MATERIAL - {"5P1465"}), [])
+faltam = sorted(GABARITO_MATERIAL - norm)
+print(f"  INFO  materiais do gabarito nesta rodada: {len(GABARITO_MATERIAL & norm)}/8"
+      + (f" (faltam {', '.join(faltam)})" if faltam else ""))
 
 print("=== 4. rateio de embalagem (fatura CD970373103) ===")
 first = out["invoices"][0]["line_items"][0]
@@ -242,6 +277,30 @@ print("=== 9f. a pre-varredura acha o part number no texto cru ===")
 check("acha o motor", "6522586" in candidate_part_numbers("QTY 7 6522586 CAPTIVE"),  True)
 check("aceita a forma com hifen", "463-8344" in candidate_part_numbers("item 463-8344 x2"), True)
 check("descarta prosa", candidate_part_numbers("nenhum codigo aqui"), [])
+
+print("=== 9g. serial so expande peca que exige, e string e um valor so ===")
+# CIV de 01/10, fatura Bosch 9028078388: o modelo devolveu o codigo da palete
+# como STRING em serial_numbers, para uma peca que nao exige serial. O laco o
+# percorria letra a letra, e 128 pecas de 561-7001 viraram 18 registros de 1.
+bosch = {"invoices": [{"invoice_number": "9028078388", "total": "13891.84",
+    "line_items": [{"part_number": "561-7001", "quantity": "128",
+                    "unit_price": "108.53", "amount": "13891.84",
+                    "serial_numbers": "336624491166044672"}]}], "confidence": 0.95}
+r = _normalise(bosch, 0.95, content="561-7001", exigem_serial=set())
+linhas = r["invoices"][0]["line_items"]
+check("peca sem serial fica uma linha so", len(linhas), 1)
+check("com a quantidade impressa", linhas[0]["quantity"], "128")
+check("e sem serial gravado", linhas[0]["serial_number"], None)
+check("o valor ignorado fica na nota",
+      any("336624491166044672" in v for v in r["notes"]), True)
+# Nota, nao defeito: a linha gravada e a impressa. Mandar para revisao toda
+# fatura em que o modelo chutou um serial seria falso positivo.
+check("e nao vira problema", r["validation"], [])
+
+r = _normalise(bosch, 0.95, content="561-7001", exigem_serial={"5617001"})
+linhas = r["invoices"][0]["line_items"]
+check("string exigida vira UM serial, nao dezoito", len(linhas), 1)
+check("inteira", linhas[0]["serial_number"], "336624491166044672")
 
 print("=== 10. gate: linha sem part number sai de line_items, mas nao some ===")
 # A nota 'END USE' da fatura 93872204 vinha como item, com o preco do motor, e

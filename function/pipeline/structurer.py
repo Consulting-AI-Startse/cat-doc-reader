@@ -465,7 +465,7 @@ class AzureOpenAIStructurer(LLMStructurer):
 
 
 def _expand_serials(tag: str, li: dict, exige_serial: bool):
-    """(registros, avisos). Uma linha impressa vira um registro por serial.
+    """(registros, avisos, notas). Uma linha impressa vira um registro por serial.
 
     Regra do cliente: motor repete o MESMO part number, uma vez para cada
     serial. A fatura 93872204 traz 'QTY 7' de 6522586 e sete seriais
@@ -476,8 +476,29 @@ def _expand_serials(tag: str, li: dict, exige_serial: bool):
     das linhas daria 7x o total impresso e a conferencia aritmetica, que existe
     para achar defeito, acusaria erro em TODA fatura de motor.
     """
-    seriais = [str(x).strip() for x in (li.get("serial_numbers") or []) if str(x).strip()]
+    lidos = li.get("serial_numbers") or []
+    # String e UM valor, nunca uma lista de caracteres. No CIV o modelo
+    # devolveu "336624491166044672" (o codigo da palete da Bosch, nem serial
+    # era) e o laco abaixo o percorria letra a letra: 128 pecas de 561-7001
+    # viraram 18 registros de 1, com seriais '3', '3', '6'...
+    if isinstance(lidos, str):
+        lidos = [lidos]
+    seriais = [str(x).strip() for x in lidos if str(x).strip()]
     avisos = []
+    notas = []
+
+    if seriais and not exige_serial:
+        # Quem decide se a peca leva serial e a lista de PN, nunca o modelo: o
+        # shape do prompt sempre traz "serial_numbers", e ele preenche com o
+        # que parecer serial. Expandir aqui destruia a linha impressa -- e a
+        # conferencia aritmetica nao acusa, porque soma a linha ANTES da
+        # expansao. E nota, nao defeito: a linha gravada fica como impressa, e
+        # o valor descartado fica registrado para auditoria.
+        notas.append(
+            "%s: '%s' nao exige serial pela lista de PN; serial(is) devolvido(s) "
+            "pelo modelo ignorado(s): %s" % (tag, li.get("part_number"), ", ".join(seriais))
+        )
+        seriais = []
 
     if not seriais:
         if exige_serial:
@@ -486,7 +507,7 @@ def _expand_serials(tag: str, li: dict, exige_serial: bool):
             avisos.append(
                 "%s: '%s' exige serial number e nenhum foi lido" % (tag, li.get("part_number"))
             )
-        return [dict(li, serial_number=None)], avisos
+        return [dict(li, serial_number=None)], avisos, notas
 
     qty = _num(li.get("quantity"))
     if qty is not None and abs(qty - len(seriais)) > 0.001:
@@ -512,7 +533,7 @@ def _expand_serials(tag: str, li: dict, exige_serial: bool):
             quantity="1",
             amount=_s(li.get("unit_price")) if unit is not None else li.get("amount"),
         ))
-    return registros, avisos
+    return registros, avisos, notas
 
 
 # Status que NAO sao item de fatura. Derrubar por "nao esta na lista de PN
@@ -579,10 +600,11 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None):
         # A expansao vem depois da conferencia aritmetica da linha impressa:
         # conferir os registros expandidos seria comparar 1 x unit_price com
         # ele mesmo, o que nao testa nada.
-        registros, avisos = _expand_serials(
+        registros, avisos, notas_serial = _expand_serials(
             "%s.line[%d]" % (tag, n), li, normalised in exigem_serial
         )
         issues.extend(avisos)
+        notas.extend(notas_serial)
         kept.extend(registros)
 
     if descartadas:
