@@ -12,6 +12,49 @@ estado do PR.
 
 ---
 
+## 2026-10-01 — leva 10: serial só expande peça que exige · **pronta**, aguardando os blobs da VM
+
+2 arquivos, por ZIP em base64 + script autocontido. Branch sugerida:
+`fix/serial-so-peca-que-exige`. Base **prevista**, a confirmar pela VM antes do
+envio: os dois blobs são o "depois" da leva 6, a última que tocou os dois
+arquivos.
+
+O CIV reextraído em 01/10 (`cc02235d-d981-455a-9baf-54bbaf8b7d01`) gravou a
+fatura Bosch 9028078388 com **18 registros de 1 peça** no lugar das 128 de
+`561-7001`, com seriais `3`, `3`, `6`... O modelo devolveu o código da palete
+(`336624491166044672`) como **string** em `serial_numbers`, e o
+`_expand_serials` a percorria letra a letra. A expansão também rodava para
+peça que não exige serial pela lista, e a conferência aritmética não acusou,
+porque soma a linha impressa antes de expandir.
+
+- Expansão só quando a lista de PN exige serial; fora disso o valor devolvido
+  pelo modelo vai para `notes` e a linha fica como impressa.
+- String em `serial_numbers` é um valor só.
+- `check_structurer.py`: seção 9g com o caso da Bosch; a remontagem do CIV
+  gravado junta os registros expandidos de volta na linha impressa; o teste do
+  gabarito confere a normalização, não qual código o modelo escolheu na rodada.
+
+Não toca `shared/shared/`, então não precisa de `build.ps1`. Depois do merge:
+`app-deploy → function` e reprocessar o CIV.
+
+Script testado com PowerShell 5.1 e git do Windows, checkout CRLF, nos quatro
+caminhos: aplica limpo (com `import function_app`, `check_rules.py` e
+`check_structurer.py`), já aplicada, diverge sem escrever (em qualquer dos dois
+arquivos), `.b64` corrompido.
+
+| | |
+|---|---|
+| SHA-256 do `aplicar-leva10.b64` | `13294e0a045c8ad067b69611eb4347783a1e2032101d355803a00b39b95e7fd2` |
+| SHA-256 do `leva10-arquivos.b64` | `17f844b943a8803efae34c59d20a63c6031261cd077bf0ee60471363a3aa4386` |
+| SHA-256 do `leva10-arquivos.zip` | `3e0073a567c8b8a6744631d362f52fd5284ef64bcabcbce2f50ab59cdfd35613` |
+
+| arquivo | base | depois |
+|---|---|---|
+| `function/pipeline/structurer.py` | `f4f965a50fef` | `f2b158993860` |
+| `check_structurer.py` | `9eaa4c8bd8b1` | `482be0b3b574` |
+
+---
+
 ## 2026-10-01 — papel da function no Azure OpenAI · **aplicado** (não é leva)
 
 Operação na VM, sem código. Depois da leva 9 a function voltou a rodar e o
