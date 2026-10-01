@@ -12,12 +12,17 @@ estado do PR.
 
 ---
 
-## 2026-10-01 — leva 10: serial só expande peça que exige · **pronta**, aguardando os blobs da VM
+## 2026-10-01 — leva 10: serial só expande peça que exige · **publicada**
+
+**Em produção em 01/10.** A base foi conferida na VM antes do envio
+(`origin/main`, os dois blobs como previstos). O CIV reenviado
+(`3dce38ec-05bf-45a2-b72f-3f3e829ab4db`) saiu com a Bosch em **1 linha de 128
+peças**, e o código da palete só na nota. O documento antigo
+(`cc02235d-...`) segue gravado com os 18 registros errados.
 
 2 arquivos, por ZIP em base64 + script autocontido. Branch sugerida:
-`fix/serial-so-peca-que-exige`. Base **prevista**, a confirmar pela VM antes do
-envio: os dois blobs são o "depois" da leva 6, a última que tocou os dois
-arquivos.
+`fix/serial-so-peca-que-exige`. Base: os dois blobs são o "depois" da leva 6,
+a última que tocou os dois arquivos.
 
 O CIV reextraído em 01/10 (`cc02235d-d981-455a-9baf-54bbaf8b7d01`) gravou a
 fatura Bosch 9028078388 com **18 registros de 1 peça** no lugar das 128 de
