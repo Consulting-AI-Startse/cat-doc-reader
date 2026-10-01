@@ -19,11 +19,16 @@ leva evita duas rodadas de migração e deploy. 21 arquivos (13 modificados, 8
 novos), por ZIP em base64 + script autocontido. Branch sugerida:
 `feat/confianca-por-campo`.
 
-**Base conferida pelos blobs que a VM reportou (`origin/main`).** Dois arquivos
-vieram na base da leva 10, não no "depois": a leva 10 está em produção mas não
-na `main` (ver a entrada dela). O script aceita as duas bases para
-`structurer.py` e `check_structurer.py`, e o "depois" já inclui a correção do
-serial — aplicada direto na `main`, a leva 11 leva a 10 junto.
+**Base conferida pelos blobs que a VM reportou (`origin/main`)**, com uma
+ressalva: dois arquivos vieram na base da leva 10, embora o PR #30 já estivesse
+merjado. O `origin/main` da VM estava velho -- o `git fetch -q` pedia
+autenticação no navegador e falhou calado. Os outros 19 arquivos o #30 não
+toca, então a conferência deles vale. O script aceita as duas bases para
+`structurer.py` e `check_structurer.py`, o que cobre os dois casos.
+
+**Antes de pedir blob à VM, `git fetch` sem `-q`**, e conferir que não pediu
+autenticação: um fetch que falha calado faz o `rev-parse` responder com a
+referência antiga, e a conclusão errada parece um fato.
 
 - confiança por campo medida no OCR: palavra fraca (pior ocorrência), gêmeo
   confundível impresso no texto, valor não localizado. A do modelo deixa de
@@ -56,14 +61,9 @@ ausente, `.b64` corrompido.
 
 ---
 
-## 2026-10-01 — leva 10: serial só expande peça que exige · **publicada da branch**, PR não merjado
+## 2026-10-01 — leva 10: serial só expande peça que exige · **merjado** (PR #30)
 
-**Em produção em 01/10, mas não na `main`.** Conferido pelos blobs que a VM
-reportou para a leva 11: `origin/main` ainda tem `structurer.py` em `f4f965a5`
-e `check_structurer.py` em `9eaa4c8b`, a base desta leva. O deploy saiu da
-branch. A leva 11 inclui esta.
-
-**Em produção em 01/10.** A base foi conferida na VM antes do envio
+**Merjada e em produção em 01/10.** A base foi conferida na VM antes do envio
 (`origin/main`, os dois blobs como previstos). O CIV reenviado
 (`3dce38ec-05bf-45a2-b72f-3f3e829ab4db`) saiu com a Bosch em **1 linha de 128
 peças**, e o código da palete só na nota. O documento antigo
