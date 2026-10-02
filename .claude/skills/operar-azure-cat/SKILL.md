@@ -33,6 +33,25 @@ partes: `printf '%s' "$T" | awk -F. '{print NF}'` tem de dar **3**.
 admin do Entra. E a VM nao alcanca o Postgres (fora da allow-list), entao o
 unico caminho e o webssh com token de administrador.
 
+**Roteiro da migracao que funcionou (0007, 01/10), e os quatro tropecos dele:**
+
+- o usuario do banco e o **grupo admin do Entra**, `CATIT-GenAICOE-DocumentReaderPOV-Developer`
+  (sai de `az postgres flexible-server microsoft-entra-admin list ... --query "[0].principalName"`),
+  nunca o nome do servidor. Com o servidor no lugar do usuario o erro e
+  `password authentication failed for user "...postgres.database."`;
+- o host nao precisa ser procurado: o container tem o `DATABASE_URL` da MI em
+  `/proc/1/environ` (`tr '\0' '\n' < /proc/1/environ | grep '^DATABASE_URL='`);
+  o servidor e `aiagent-documentreader-pov-postgresql-server`;
+- o token do admin vale ~1 h. Gere **na hora de colar**: metades de um token
+  antigo dao `The access token has expired`, depois de toda a montagem certa;
+- reabrir o webssh zera as variaveis (`H`, `PGPASSWORD`). Conferir com
+  `echo "H=[$H] token=${#PGPASSWORD}"` antes do `alembic current`;
+- a aplicacao esta em `/tmp/<hash>` (`find /tmp /home -name alembic.ini`), com
+  o venv em `antenv/`;
+- **instrucao com marcador (`SERVIDOR`, `GRUPO-ADMIN`) e colada literalmente.**
+  Para a VM, mande o valor ja preenchido ou um comando que o descubra -- nunca
+  um placeholder no meio de uma linha que se cola inteira.
+
 **O App Service so aceita as redes da CAT, e o runner do GitHub nao e uma
 delas.** Acao padrao `Deny`; as `Allow` sao Cat_Amsterdam, Cat_Chicago,
 Cat_Dublin, Cat_Peoria_Firewall, Cat_Plano, Cat_Singapore e os ExpressRoute

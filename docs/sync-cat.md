@@ -12,7 +12,16 @@ estado do PR.
 
 ---
 
-## 2026-10-01 — leva 11: confiança por campo e página por fornecedor · **pronta**, base conferida
+## 2026-10-01 — leva 11: confiança por campo e página por fornecedor · **merjado**, migração 0007 aplicada
+
+**Merjada em 01/10; `0006 -> 0007` aplicada em produção** pelo webssh do
+fastapi com token do grupo admin (`CATIT-GenAICOE-DocumentReaderPOV-Developer`),
+conferida pelo catálogo. O merge publicou backend, function e frontend juntos
+(o `app-deploy` não deixa ordenar), então entre o deploy e a migração a
+gravação falhava: documento enviado nesse intervalo está em `error` e tem de ser
+reenviado. Roteiro e
+tropeços na skill `operar-azure-cat`.
+
 
 Itens 5 e 8 do `BACKLOG.md` numa leva só: o 8 depende das colunas do 5, e uma
 leva evita duas rodadas de migração e deploy. 21 arquivos (13 modificados, 8
