@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import unicodedata
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -116,6 +117,12 @@ HARD RULES — these are the errors that have actually occurred:
 8. "confidence" is your calibrated confidence in the extraction as a whole.
    Report below 0.90 whenever the scan is poor, a label is ambiguous, or you had
    to infer rather than read a value.
+
+9. NON-LATIN TEXT. Ignore text written in non-Latin scripts (Chinese,
+   Japanese, Korean, Cyrillic, Arabic, ...). When a value is printed both in a
+   non-Latin script and in Latin letters -- a bilingual supplier name or
+   description -- copy only the Latin version. Never translate or
+   transliterate: if a value exists only in a non-Latin script, return null.
 """
 
 # Acrescentado ao prompt SO quando a pre-varredura achou, na lista de PN
@@ -124,7 +131,7 @@ HARD RULES — these are the errors that have actually occurred:
 # uma tabela que nao existe.
 _ENGINE_RULES = """\
 
-9. SERIAL NUMBERS. This document contains at least one part that carries serial
+10. SERIAL NUMBERS. This document contains at least one part that carries serial
    numbers. Somewhere in it there is a table pairing part numbers with serials,
    with a header like "Part Number | Serial Number" (a "Pin Number" column may
    appear, empty or elsewhere).
@@ -171,6 +178,82 @@ the text says it applies to both.
 
 def _s(v) -> str | None:
     return None if v is None else str(v)
+
+
+# Escopo decidido em 08/10: texto fora do alfabeto latino e ignorado. A regra 9
+# do prompt pede isso ao modelo; isto aqui garante, porque o prompt e pedido e
+# nao contrato. Letra so fica se for latina -- acentuada inclusive, que o corpus
+# tem fornecedor turco e polones. Digito, pontuacao e simbolo de moeda ficam.
+# Sem o hifen: aparar '-1.234' perderia o sinal.
+_SEPARADORES_SOLTOS = " /|,;:_·"
+
+
+def _latin_char(c: str) -> bool:
+    if c.isspace() or ord(c) < 0x250:  # ASCII, Latin-1, Latin Extended A e B
+        return True
+    if 0x2000 <= ord(c) <= 0x214F:  # pontuacao geral, moeda, simbolos (EUR, No)
+        return True
+    cat = unicodedata.category(c)
+    if cat[0] == "L":
+        return unicodedata.name(c, "").startswith("LATIN")
+    # Acento combinante so sobrevive colado em letra latina; o NFC antes do
+    # filtro ja compoe quase todos.
+    return cat == "Mn"
+
+
+def _latin_only(text: str) -> tuple[str | None, bool]:
+    """(valor so com o que e latino, se algo foi removido).
+
+    Forma de largura cheia ('ＡＢＣ１２３', comum em fatura chinesa) vira ASCII
+    antes do filtro: e latino, so esta noutra largura. Valor que fica vazio
+    vira None -- campo so em chines e campo ausente, nunca uma string vazia.
+    """
+    text = unicodedata.normalize("NFC", text)
+    text = "".join(
+        unicodedata.normalize("NFKC", c) if 0xFF01 <= ord(c) <= 0xFF5E else c
+        for c in text
+    )
+    partes = []
+    removeu = False
+    anterior_latino = False
+    for c in text:
+        if unicodedata.category(c) == "Mn":
+            ok = anterior_latino
+        else:
+            ok = _latin_char(c)
+            anterior_latino = ok and not c.isspace()
+        if ok:
+            partes.append(c)
+        else:
+            removeu = True
+            partes.append(" ")
+    if not removeu:
+        return text, False
+    # So aqui as sobras sao aparadas: '发动机 / ENGINE' vira 'ENGINE', mas um
+    # valor sem nada removido volta como veio.
+    limpo = re.sub(r"\s+", " ", "".join(partes)).strip(_SEPARADORES_SOLTOS)
+    return (limpo or None), True
+
+
+def _lista_curta(itens: list, n: int = 10) -> str:
+    return "; ".join(itens[:n]) + (" ..." if len(itens) > n else "")
+
+
+def _strip_non_latin(obj, path: str, alterados: list):
+    """Aplica _latin_only em toda string do payload, anotando em `alterados`
+    (caminho, ficou_vazio) de cada campo que perdeu texto."""
+    if isinstance(obj, str):
+        limpo, removeu = _latin_only(obj)
+        if removeu:
+            alterados.append((path, limpo is None))
+        return limpo
+    if isinstance(obj, dict):
+        return {k: _strip_non_latin(v, "%s.%s" % (path, k) if path else str(k), alterados)
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_strip_non_latin(v, "%s[%d]" % (path, n), alterados)
+                for n, v in enumerate(obj)]
+    return obj
 
 
 def _snum(v) -> str | None:
@@ -681,6 +764,26 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
     # 'issues', uma fatura lida sem um erro ia para needs_review so por ter
     # embalagem cobrada.
     notas = []
+    alterados = []
+    if "invoices" in payload:
+        payload = dict(payload, invoices=_strip_non_latin(
+            payload["invoices"], "invoices", alterados))
+    # invoice_number_source e o rotulo de onde o numero foi lido, nao um
+    # valor: rotulo em chines ('发票号码') nao pede revisao.
+    parciais = [c for c, vazio in alterados
+                if not vazio or c.endswith(".invoice_number_source")]
+    vazios = [c for c, vazio in alterados
+              if vazio and not c.endswith(".invoice_number_source")]
+    if parciais:
+        # Nota e nao problema: e o escopo combinado, nao defeito de leitura.
+        notas.append("texto fora do alfabeto latino removido de %d campo(s): %s"
+                     % (len(parciais), _lista_curta(parciais)))
+    if vazios:
+        # Aqui havia um valor e ele sumiu inteiro: um supplier so em chines
+        # vira supplier nulo, e isso desliga a checagem de duplicata da fatura
+        # sem dizer nada. Revisao, para alguem preencher a forma latina.
+        issues.append("campo(s) escrito(s) so fora do alfabeto latino, gravado(s) "
+                      "vazio(s): %s" % _lista_curta(vazios))
     entries = [i for i in (payload.get("invoices") or []) if isinstance(i, dict)]
     skipped = len(payload.get("invoices") or []) - len(entries)
     if skipped:

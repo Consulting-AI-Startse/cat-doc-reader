@@ -1,5 +1,7 @@
+import unicodedata
 import uuid
 from datetime import date
+from urllib.parse import quote
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
@@ -273,10 +275,25 @@ def get_document_file(
     return Response(
         content=data,
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'inline; filename="{doc.source_filename or "document.pdf"}"'
-        },
+        headers={"Content-Disposition": _inline_disposition(doc.source_filename)},
     )
+
+
+def _inline_disposition(filename: str | None) -> str:
+    """Content-Disposition que aguenta qualquer nome de arquivo.
+
+    O nome ia cru no cabecalho, e cabecalho HTTP e latin-1: um PDF chamado
+    '发票_6511308.pdf' estourava UnicodeEncodeError, o endpoint devolvia 500 e
+    a tela de revisao ficava com o visualizador quebrado. O nome real vai em
+    filename* (RFC 5987, UTF-8 escapado); filename leva uma versao ASCII para
+    navegador que nao entende o outro.
+    """
+    nome = filename or "document.pdf"
+    ascii_ = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode()
+    ascii_ = "".join(c if c.isprintable() and c not in '"\\' else "_" for c in ascii_)
+    if not ascii_.removesuffix(".pdf").strip(" ._-"):
+        ascii_ = "document.pdf"
+    return "inline; filename=\"%s\"; filename*=UTF-8''%s" % (ascii_, quote(nome, safe=""))
 
 @router.get("/{document_id}/raw")
 def get_document_raw(document_id: uuid.UUID, db: Session = Depends(get_db)):

@@ -264,6 +264,43 @@ check("invoice_number: 1 ambigua, 1 corrigida",
 # A nota do corrigido nao fala mais do valor gravado: fica fora da media.
 check("corrigido fora da media", campos["invoice_number"]["mean_score"], 0.5)
 
+# --- texto fora do alfabeto latino (escopo decidido em 08/10) ----------------
+from pipeline.structurer import _latin_only
+
+print("=== _latin_only: o que fica e o que sai ===")
+check("chines sai, latino fica", _latin_only("发动机 / ENGINE AR-COMPL"), ("ENGINE AR-COMPL", True))
+check("so chines vira None", _latin_only("上海卡特彼勒"), (None, True))
+check("cirilico tambem sai", _latin_only("ДВИГАТЕЛЬ ENGINE"), ("ENGINE", True))
+# Fornecedores do corpus: acento latino nao e alfabeto estrangeiro.
+check("turco fica intacto", _latin_only("DOKTAŞ DÖKÜMCÜLÜK TİC."), ("DOKTAŞ DÖKÜMCÜLÜK TİC.", False))
+check("moeda e simbolo ficam", _latin_only("€ 1.234,50 №5 × 2"), ("€ 1.234,50 №5 × 2", False))
+check("largura cheia vira ASCII", _latin_only("ＰＮ６５１１３０８"), ("PN6511308", False))
+check("sinal sobrevive ao aparo", _latin_only("金额 -1.234,50"), ("-1.234,50", True))
+check("sem remocao, sem aparo", _latin_only(" 1 PALLET / "), (" 1 PALLET / ", False))
+
+print("=== _normalise: o filtro chega no que e gravado ===")
+payload = {"invoices": [{"invoice_number": "INV-88", "invoice_number_source": "发票号码",
+                         "total": "100.00", "line_items": [
+    {"part_number": "651-1308", "description": "发动机 ENGINE", "quantity": "1",
+     "unit_price": "100.00", "amount": "100.00", "supplier": "上海卡特彼勒"}]}],
+           "confidence": 0.99}
+r = _normalise(payload, None, [], None, "", set())
+li = r["invoices"][0]["line_items"][0]
+check("descricao sem chines", li["description"], "ENGINE")
+check("supplier so em chines: nulo", li["supplier"], None)
+check("parcial vira nota", any("removido de 2 campo" in n for n in r["notes"]), True)
+# O rotulo vai para a nota, nao para a revisao: e de onde o numero veio.
+check("vazio vira problema", [v for v in r["validation"] if "alfabeto" in v],
+      ["campo(s) escrito(s) so fora do alfabeto latino, gravado(s) vazio(s): "
+       "invoices[0].line_items[0].supplier"])
+limpo = _normalise({"invoices": [{"invoice_number": "INV-88", "total": "100.00", "line_items": [
+    {"part_number": "651-1308", "description": "ENGINE", "quantity": "1",
+     "unit_price": "100.00", "amount": "100.00", "supplier": "CAT"}]}]}, None, [], None, "", set())
+check("documento latino: sem nota", [n for n in limpo["notes"] if "alfabeto" in n], [])
+vazio = _normalise({"confidence": 0.9}, None, [], None, "", set())
+check("payload sem invoices: chaves intactas",
+      any("chaves recebidas: ['confidence']" in v for v in vazio["validation"]), True)
+
 print()
 if falhas:
     print(f"{len(falhas)} FALHA(S): {falhas}")

@@ -17,7 +17,8 @@ Esforço: **XS** < 1h · **S** ~meio dia · **M** ~1–2 dias · **L** ~1 semana
 | ~~8~~ | ~~Relatório de confiança por fornecedor~~ | M | médio | **feito** |
 | 9 | Métricas de processamento por período | M | médio | — |
 | — | `Invoice Type`, `Import Process`, `CSAR`, `PFO`, `##` | ? | ? | **bloqueado** |
-| — | Não-latino; Word/Excel | ? | ? | **escopo indefinido** |
+| ~~—~~ | ~~Texto fora do alfabeto latino~~ | S | médio | **feito** |
+| — | Word/Excel | ? | ? | **escopo indefinido** |
 
 **A inversão:** o item 3 é M, não S, mas vem antes do 5 porque a lista de PN é a
 fonte da verdade da validação e porque destrava o item 4 de graça.
@@ -42,7 +43,8 @@ Imagem, Word, Excel ...................... TBD
 ```
 
 As colunas `Latino` e `Full Não Latino` estão vazias: o escopo de alfabeto ainda
-não foi definido pelo cliente.
+não foi definido pelo cliente. **Decidido em 08/10: texto fora do alfabeto latino é
+ignorado** — ver a seção abaixo do item 9.
 
 ---
 
@@ -371,6 +373,28 @@ produz.
 - **Métricas de processamento por período** — premissa "MÉTRICAS DE PERFORMANCE
   DO AGENTE, DE PROCESSAMENTO E POR PERÍODO".
 
+## Texto fora do alfabeto latino — feito em 08/10
+
+Decisão: **ignorar todo vocabulário não latino.** Eram duas coisas diferentes:
+
+- **A tela quebrava pelo nome do arquivo, não pelo conteúdo.** O `GET
+  /documents/{id}/file` punha o nome cru no `Content-Disposition`, e cabeçalho
+  HTTP é latin-1: `发票_6511308.pdf` dava `UnicodeEncodeError`, 500, e o
+  visualizador de PDF da revisão ficava em branco. O nome agora vai em
+  `filename*` (RFC 5987), com fallback ASCII em `filename`.
+- **Os campos extraídos saem só com o latino.** Regra 9 no prompt (copiar a
+  versão latina de valor bilíngue, nunca traduzir) e, como prompt não é
+  contrato, `_latin_only` em toda string do payload dentro do `_normalise` —
+  vale para Azure, modo local e mock. Acento latino fica (DOKTAŞ), forma de
+  largura cheia vira ASCII (`ＰＮ６５１１３０８`), dígito e moeda ficam.
+
+O texto do OCR **não** é filtrado: a confiança por campo localiza valores por
+offset no `content`, e reescrevê-lo deslocaria tudo. Marcar, não descartar:
+campo que perdeu parte do texto vira nota; campo que ficou **vazio** (supplier
+só em chinês) vira problema e vai para revisão, porque um supplier nulo
+desliga a checagem de duplicata sem avisar. O `invoice_number_source` é
+exceção — é rótulo, não valor. Teste no `check_rules.py`.
+
 ---
 
 ## Perguntas em aberto para a CAT
@@ -387,8 +411,8 @@ produz.
    `F4E09020` é Serial ou PIN?~~ **Respondido em 24/09** — é motor → Serial;
    não é motor → PIN. Ver item 4. Fica em aberto **quais são os "outros"** que
    a planilha manda mapear.
-5. `Latino` / `Full Não Latino` na `FASES_LEITURA` — quais documentos e quais
-   alfabetos?
+5. ~~`Latino` / `Full Não Latino` na `FASES_LEITURA` — quais documentos e quais
+   alfabetos?~~ **Decidido em 08/10:** fora do latino é ignorado.
 6. Com que frequência a **lista de PN** é atualizada? Define se o import precisa
    de versionamento ou se sobrescrever basta.
 7. O gabarito tem `Adição 6` **duplicada** em duas faturas, com o total da
