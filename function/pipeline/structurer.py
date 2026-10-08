@@ -53,8 +53,8 @@ Return ONLY JSON in exactly this shape:
 "currency", "freight", "packaging_cost", "total", "line_items": [{"part_number", "description",
 "quantity", "unit_price", "amount", "purchase_order", "incoterm",
 "country_of_origin", "domestic_freight", "packaging", "exporter", "supplier",
-"manufacturer", "unit", "unit_weight", "line_weight", "weight_uom",
-"serial_numbers"}]}], "confidence": 0..1}
+"unit", "unit_weight", "line_weight", "weight_uom", "manufacturer", "serial_numbers"}]}],
+"confidence": 0..1}
 
 Every monetary and quantity field above is a STRING copied as printed -- see
 rule 6. "confidence" is the one number you report as a number.
