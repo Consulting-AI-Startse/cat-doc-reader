@@ -47,6 +47,10 @@ export interface LineItem {
   packaging: string | number | null;
   exporter: string | null;
   manufacturer: string | null;
+  /** Unidade da quantidade, como impressa ('PCS', 'EA'). */
+  unit: string | null;
+  /** Peso de uma unidade, sempre em kg. Nulo antes da migração 0008. */
+  unit_weight: string | number | null;
   /** Nulo no modo local e nas linhas gravadas antes da migração 0007. */
   field_confidence: FieldConfidenceMap | null;
 }
@@ -148,6 +152,8 @@ export interface LineInput {
   packaging: string | null;
   exporter: string | null;
   manufacturer: string | null;
+  unit: string | null;
+  unit_weight: string | null;
   field_confidence: FieldConfidenceMap | null;
 }
 

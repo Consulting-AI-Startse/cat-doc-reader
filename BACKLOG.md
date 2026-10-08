@@ -8,7 +8,7 @@ Esforço: **XS** < 1h · **S** ~meio dia · **M** ~1–2 dias · **L** ~1 semana
 | # | item | esforço | valor | depende |
 |---|---|---|---|---|
 | ~~1~~ | ~~Poison handler grava status `error`~~ | XS | alto | **feito** |
-| 2 | `Unit` e `Unit Weight` | S | médio | — |
+| ~~2~~ | ~~`Unit` e `Unit Weight`~~ | S | médio | **feito** |
 | ~~3~~ | ~~Lista de PN: tabela, import CSV e checagem~~ | M | **muito alto** | **feito** |
 | ~~4~~ | ~~Serial Number~~ | M | alto | **feito** |
 | ~~5~~ | ~~Confiança por campo e geral~~ | M | alto | **feito** |
@@ -75,7 +75,20 @@ Cuidado com o `dequeue_count` dentro do handler de poison: ele é o da mensagem
 **na fila de poison**, que recomeça em 1. O número de falhas do worker é o
 `maxDequeueCount` do `host.json` (hoje 2), não aquele.
 
-## 2. `Unit` e `Unit Weight` (S)
+## 2. `Unit` e `Unit Weight` (S) — feito em 08/10
+
+**Como ficou.** Migração `0008`: `unit` `Text` (não `String(16)` — a `0003`
+existe porque um incoterm estourou `VARCHAR(16)`) e `unit_weight`
+`Numeric(18,5)`, **sempre em kg**. O modelo copia o peso como impresso, por
+unidade (`unit_weight`) ou da linha (`line_weight`), mais a unidade de peso
+(`weight_uom`); quem divide pela quantidade e converte LB/G para kg é o
+`_unit_weight`, pela mesma razão da regra 6. O cálculo é sobre a linha
+impressa, antes da expansão por serial — o registro expandido tem quantidade
+1. Peso sem unidade impressa assume KG com nota; unidade desconhecida grava
+nulo com nota. Teste no `check_rules.py`.
+
+O texto abaixo é o plano original.
+
 
 Dois campos que o cliente pede e não temos. `Unit` é mandatório (a unidade:
 `pcs`, `kg`). `Unit Weight` é o `Peso Unitário` do gabarito, com verdade

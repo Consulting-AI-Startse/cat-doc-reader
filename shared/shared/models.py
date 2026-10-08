@@ -168,6 +168,11 @@ class InvoicePartNumberItem(Base):
     packaging: Mapped[str | None] = mapped_column(Text)
     exporter: Mapped[str | None] = mapped_column(Text)
     manufacturer: Mapped[str | None] = mapped_column(Text)
+    # Unidade da QUANTIDADE, como impressa ('PCS', 'EA'). Text e nao String(16):
+    # a 0003 existe porque um incoterm real estourou VARCHAR(16).
+    unit: Mapped[str | None] = mapped_column(Text)
+    # Peso de UMA unidade, sempre em kg -- o structurer divide e converte.
+    unit_weight: Mapped[Decimal | None] = mapped_column(Numeric(18, 5))
     field_confidence: Mapped[dict | None] = mapped_column(JSONB)
 
     invoice: Mapped[Invoice] = relationship(back_populates="line_items")

@@ -53,7 +53,8 @@ Return ONLY JSON in exactly this shape:
 "currency", "freight", "packaging_cost", "total", "line_items": [{"part_number", "description",
 "quantity", "unit_price", "amount", "purchase_order", "incoterm",
 "country_of_origin", "domestic_freight", "packaging", "exporter", "supplier",
-"manufacturer", "serial_numbers"}]}], "confidence": 0..1}
+"manufacturer", "unit", "unit_weight", "line_weight", "weight_uom",
+"serial_numbers"}]}], "confidence": 0..1}
 
 Every monetary and quantity field above is a STRING copied as printed -- see
 rule 6. "confidence" is the one number you report as a number.
@@ -123,6 +124,14 @@ HARD RULES — these are the errors that have actually occurred:
    non-Latin script and in Latin letters -- a bilingual supplier name or
    description -- copy only the Latin version. Never translate or
    transliterate: if a value exists only in a non-Latin script, return null.
+
+10. UNIT AND WEIGHT. "unit" is the unit of measure of the line's QUANTITY, as
+   printed ("PCS", "EA", "UN", "SET", "KG"); null when none is printed.
+   Weights are numbers, so rule 6 applies: copy them as printed. Put the
+   weight of ONE unit in "unit_weight", or, when the document only prints the
+   weight of the whole line, put that in "line_weight". Prefer NET weight over
+   gross weight. "weight_uom" is the weight unit as printed ("KG", "LB",
+   "LBS"). Do not divide and do not convert: this code does both.
 """
 
 # Acrescentado ao prompt SO quando a pre-varredura achou, na lista de PN
@@ -131,7 +140,7 @@ HARD RULES — these are the errors that have actually occurred:
 # uma tabela que nao existe.
 _ENGINE_RULES = """\
 
-10. SERIAL NUMBERS. This document contains at least one part that carries serial
+11. SERIAL NUMBERS. This document contains at least one part that carries serial
    numbers. Somewhere in it there is a table pairing part numbers with serials,
    with a header like "Part Number | Serial Number" (a "Pin Number" column may
    appear, empty or elsewhere).
@@ -413,6 +422,45 @@ def _landed(kept: list, extra):
         if qty is not None:
             li["amount_landed"] = "%.2f" % ((unit + per_unit) * qty)
     return per_unit
+
+
+# Fator para kg. O 'Peso Unitario' do gabarito do cliente e em kg (3649717 ->
+# 19,81), e fatura americana imprime em LB: converter e do codigo, nunca do
+# modelo, pelo mesmo motivo da regra 6 -- conta pedida ao LLM vira palpite.
+_KG_POR = {
+    "KG": 1.0, "KGS": 1.0, "KILO": 1.0, "KILOS": 1.0, "KILOGRAM": 1.0, "KILOGRAMS": 1.0,
+    "LB": 0.45359237, "LBS": 0.45359237, "POUND": 0.45359237, "POUNDS": 0.45359237,
+    "G": 0.001, "GR": 0.001, "GRS": 0.001, "GRAM": 0.001, "GRAMS": 0.001,
+}
+
+
+def _unit_weight(tag: str, li: dict):
+    """(peso de uma unidade em kg como string, nota). Calculado sobre a linha
+    IMPRESSA, antes da expansao por serial: o registro expandido tem
+    quantidade 1, e dividir o peso da linha por ele daria o peso da linha."""
+    unitario = _num(li.get("unit_weight"))
+    da_linha = _num(li.get("line_weight"))
+    if unitario is None and da_linha is None:
+        return None, None
+
+    uom = re.sub(r"[^A-Z]", "", str(li.get("weight_uom") or "").upper())
+    if not uom:
+        # Nota e nao defeito: o campo nao e mandatorio, e mandar para revisao
+        # toda fatura que imprime 'Net Weight' sem unidade seria ruido.
+        fator, nota = 1.0, "%s: peso sem unidade impressa; assumido KG" % tag
+    elif uom in _KG_POR:
+        fator, nota = _KG_POR[uom], None
+    else:
+        return None, ("%s: unidade de peso '%s' desconhecida; unit_weight nao gravado"
+                      % (tag, li.get("weight_uom")))
+
+    if unitario is None:
+        qty = _num(li.get("quantity"))
+        if not qty:
+            return None, ("%s: peso da linha %s sem quantidade para dividir; "
+                          "unit_weight nao gravado" % (tag, li.get("line_weight")))
+        unitario = da_linha / qty
+    return "%.5f" % (unitario * fator), nota
 
 
 def _close(a, b) -> bool:
@@ -710,6 +758,11 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None, in
                 % (tag, n, qty, unit, qty * unit, amount)
             )
 
+        peso, nota_peso = _unit_weight("%s.line[%d]" % (tag, n), li)
+        li["unit_weight"] = peso
+        if nota_peso:
+            notas.append(nota_peso)
+
         # A expansao vem depois da conferencia aritmetica da linha impressa:
         # conferir os registros expandidos seria comparar 1 x unit_price com
         # ele mesmo, o que nao testa nada.
@@ -914,6 +967,8 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
                 "exporter": li.get("exporter"),
                 "supplier": li.get("supplier"),
                 "manufacturer": li.get("manufacturer"),
+                "unit": _s(li.get("unit")),
+                "unit_weight": li.get("unit_weight"),
                 "field_confidence": li.get("field_confidence"),
             })
 
@@ -996,6 +1051,8 @@ class MockStructurer(LLMStructurer):
                     "serial_number": None,
                     "supplier": it.get("supplier"),
                     "manufacturer": it.get("manufacturer"),
+                    "unit": None,
+                    "unit_weight": None,
                 })
             invoices.append({
                 "invoice_number": inv.get("invoice_number"),

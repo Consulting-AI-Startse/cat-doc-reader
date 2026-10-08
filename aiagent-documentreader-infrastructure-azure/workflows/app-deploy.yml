@@ -256,11 +256,14 @@ jobs:
             -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-frontend-appservice" \
             --startup-file "node server.cjs"
 
+      # --clean: o wwwroot guardava o que deploys anteriores deixaram -- o
+      # server.js de antes da leva 7 e os bundles de hash antigo do dist/.
+      # Explicito porque o default depende do tipo de artefato.
       - name: Publicar
         run: |
           az webapp deploy -g "${{ env.RESOURCEGROUPNAME }}" \
             -n "${{ env.PROJECTNAME }}-${{ env.ENVIRONMENT }}-frontend-appservice" \
-            --src-path frontend.zip --type zip
+            --src-path frontend.zip --type zip --clean true
 
   # ==========================================================================
   # Backend

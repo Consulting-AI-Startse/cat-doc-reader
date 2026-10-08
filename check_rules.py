@@ -301,6 +301,38 @@ vazio = _normalise({"confidence": 0.9}, None, [], None, "", set())
 check("payload sem invoices: chaves intactas",
       any("chaves recebidas: ['confidence']" in v for v in vazio["validation"]), True)
 
+
+# --- unit e unit_weight (migracao 0008) --------------------------------------
+from pipeline.structurer import _unit_weight
+
+print("=== _unit_weight: o modelo copia, o codigo divide e converte ===")
+check("unitario em KG", _unit_weight("t", {"unit_weight": "19,81", "weight_uom": "KG"}),
+      ("19.81000", None))
+check("da linha / quantidade", _unit_weight("t", {"line_weight": "594,30", "quantity": "30",
+                                                  "weight_uom": "kg"}), ("19.81000", None))
+check("LB vira kg", _unit_weight("t", {"unit_weight": "10", "weight_uom": "LBS."}),
+      ("4.53592", None))
+check("sem peso: nada", _unit_weight("t", {"unit": "PCS"}), (None, None))
+peso, nota = _unit_weight("t", {"unit_weight": "2.5"})
+check("sem unidade: KG com nota", (peso, "assumido KG" in (nota or "")), ("2.50000", True))
+peso, nota = _unit_weight("t", {"unit_weight": "2.5", "weight_uom": "TON"})
+check("unidade desconhecida: nulo", (peso, "desconhecida" in (nota or "")), (None, True))
+peso, nota = _unit_weight("t", {"line_weight": "50", "weight_uom": "KG"})
+check("linha sem quantidade: nulo", (peso, "sem quantidade" in (nota or "")), (None, True))
+
+print("=== unit_weight: calculado antes da expansao por serial ===")
+# O registro expandido tem quantidade 1: dividir o peso da linha por ele daria
+# o peso das 7 unidades em cada registro.
+payload = {"invoices": [{"invoice_number": "93872204", "total": "35510.28", "line_items": [
+    {"part_number": "6522586", "quantity": "2", "unit_price": "17755.14", "amount": "35510.28",
+     "unit": "EA", "line_weight": "1700", "weight_uom": "KG",
+     "serial_numbers": ["XWE42867", "XWE42871"]}]}], "confidence": 0.99}
+r = _normalise(payload, None, [], None, "", {"6522586"})
+regs = r["invoices"][0]["line_items"]
+check("dois registros", len(regs), 2)
+check("cada um com o peso de UM motor", [x["unit_weight"] for x in regs], ["850.00000"] * 2)
+check("unidade emitida", regs[0]["unit"], "EA")
+
 print()
 if falhas:
     print(f"{len(falhas)} FALHA(S): {falhas}")

@@ -71,6 +71,8 @@ def _serialize_line(li: InvoicePartNumberItem) -> dict:
         "packaging": li.packaging,
         "exporter": li.exporter,
         "manufacturer": li.manufacturer,
+        "unit": li.unit,
+        "unit_weight": li.unit_weight,
         "field_confidence": li.field_confidence,
     }
 
@@ -174,6 +176,9 @@ class LineIn(BaseModel):
     packaging: str | None = None
     exporter: str | None = None
     manufacturer: str | None = None
+    unit: str | None = None
+    # Em kg: e o que a tela mostra e o que o structurer grava.
+    unit_weight: str | float | None = None
     # Volta no payload porque o PATCH recria todas as linhas: sem isto a nota
     # do OCR sumiria no primeiro salvar. A tela marca como 'corrected' o
     # campo que o revisor editou.
@@ -357,6 +362,8 @@ def update_document(
                     packaging=_opt_str(li.packaging),
                     exporter=_opt_str(li.exporter),
                     manufacturer=_opt_str(li.manufacturer),
+                    unit=_opt_str(li.unit),
+                    unit_weight=_opt_decimal(li.unit_weight),
                     field_confidence=li.field_confidence,
                 )
             )

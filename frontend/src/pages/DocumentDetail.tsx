@@ -36,6 +36,8 @@ interface LineForm {
   packaging: string;
   exporter: string;
   manufacturer: string;
+  unit: string;
+  unit_weight: string;
   // Nota do OCR e os valores como vieram da extração: no salvar, o campo cujo
   // valor mudou vira 'corrected' (lib/confidence.ts).
   _fc: FieldConfidenceMap | null;
@@ -87,6 +89,8 @@ function buildForm(d: Detail): InvoiceForm[] {
           packaging: str(li.packaging),
           exporter: str(li.exporter),
           manufacturer: str(li.manufacturer),
+          unit: str(li.unit),
+          unit_weight: str(li.unit_weight),
         };
         return { ...values, _fc: li.field_confidence, _orig: values };
       }),
@@ -118,6 +122,8 @@ function toPayload(invoices: InvoiceForm[]): DocumentUpdate {
         packaging: orNull(l.packaging),
         exporter: orNull(l.exporter),
         manufacturer: orNull(l.manufacturer),
+        unit: orNull(l.unit),
+        unit_weight: orNull(l.unit_weight),
         field_confidence: withCorrections(l._fc, l._orig, l as unknown as Record<string, string>),
       })),
     })),
@@ -138,6 +144,8 @@ const emptyLine = (): LineForm => ({
   packaging: "",
   exporter: "",
   manufacturer: "",
+  unit: "",
+  unit_weight: "",
   _fc: null,
   _orig: {},
 });
@@ -434,6 +442,8 @@ export function DocumentDetail() {
                           <th className="py-1.5 pr-2 font-medium">Serial</th>
                           <th className="py-1.5 pr-2 font-medium">Descrição</th>
                           <th className="py-1.5 pr-2 text-right font-medium">Qtd</th>
+                          <th className="py-1.5 pr-2 font-medium">Unid.</th>
+                          <th className="py-1.5 pr-2 text-right font-medium">Peso un. (kg)</th>
                           <th className="py-1.5 pr-2 text-right font-medium">Unitário{inv.currency ? ` (${inv.currency})` : ""}</th>
                           <th className="py-1.5 pr-2 text-right font-medium">Total{inv.currency ? ` (${inv.currency})` : ""}</th>
                           <th className="py-1.5 pr-2 font-medium">PO</th>
@@ -454,6 +464,8 @@ export function DocumentDetail() {
                                 <Cell><input className={`${inputCls} ${fcClass(l._fc?.serial_number)}`} title={fcTitle(l._fc?.serial_number)} value={l.serial_number} onChange={(e) => setLine(i, li, "serial_number", e.target.value)} /></Cell>
                                 <Cell wide><input className={inputCls} value={l.description} onChange={(e) => setLine(i, li, "description", e.target.value)} /></Cell>
                                 <Cell><input className={`${inputCls} ${fcClass(l._fc?.quantity)}`} title={fcTitle(l._fc?.quantity)} inputMode="decimal" value={l.quantity} onChange={(e) => setLine(i, li, "quantity", e.target.value)} /></Cell>
+                                <Cell><input className={inputCls} value={l.unit} onChange={(e) => setLine(i, li, "unit", e.target.value)} /></Cell>
+                                <Cell><input className={inputCls} inputMode="decimal" value={l.unit_weight} onChange={(e) => setLine(i, li, "unit_weight", e.target.value)} /></Cell>
                                 <Cell><input className={`${inputCls} ${fcClass(l._fc?.unit_price)}`} title={fcTitle(l._fc?.unit_price)} inputMode="decimal" value={l.unit_price} onChange={(e) => setLine(i, li, "unit_price", e.target.value)} /></Cell>
                                 <Cell><input className={`${inputCls} ${fcClass(l._fc?.amount)}`} title={fcTitle(l._fc?.amount)} inputMode="decimal" value={l.amount} onChange={(e) => setLine(i, li, "amount", e.target.value)} /></Cell>
                                 <Cell><input className={`${inputCls} ${fcClass(l._fc?.purchase_order)}`} title={fcTitle(l._fc?.purchase_order)} value={l.purchase_order} onChange={(e) => setLine(i, li, "purchase_order", e.target.value)} /></Cell>
@@ -472,6 +484,8 @@ export function DocumentDetail() {
                                 <td className={`py-1.5 pr-2 font-mono text-neutral-600 ${fcClass(l._fc?.serial_number)}`} title={fcTitle(l._fc?.serial_number)}>{l.serial_number || EMPTY}</td>
                                 <td className="py-1.5 pr-2 text-neutral-800">{l.description || EMPTY}</td>
                                 <td className={`py-1.5 pr-2 text-right tabular text-neutral-600 ${fcClass(l._fc?.quantity)}`} title={fcTitle(l._fc?.quantity)}>{l.quantity || EMPTY}</td>
+                                <td className="py-1.5 pr-2 text-neutral-500">{l.unit || EMPTY}</td>
+                                <td className="py-1.5 pr-2 text-right tabular text-neutral-500">{l.unit_weight || EMPTY}</td>
                                 <td className={`py-1.5 pr-2 text-right tabular text-neutral-600 ${fcClass(l._fc?.unit_price)}`} title={fcTitle(l._fc?.unit_price)}>{money(l.unit_price || null, inv.currency || null)}</td>
                                 <td className={`py-1.5 pr-2 text-right tabular text-neutral-700 ${fcClass(l._fc?.amount)}`} title={fcTitle(l._fc?.amount)}>{money(l.amount || null, inv.currency || null)}</td>
                                 <td className={`py-1.5 pr-2 font-mono text-neutral-500 ${fcClass(l._fc?.purchase_order)}`} title={fcTitle(l._fc?.purchase_order)}>{l.purchase_order || EMPTY}</td>

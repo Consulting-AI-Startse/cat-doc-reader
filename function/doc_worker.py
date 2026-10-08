@@ -57,6 +57,11 @@ def _pecas_com_serial(db: Session, content: str) -> set[str]:
     try:
         achados = lookup_parts(db, candidatos)
     except Exception as exc:  # noqa: BLE001 - lista ausente nao derruba o documento
+        # No Postgres um comando que falha aborta a transacao: sem o rollback,
+        # o proximo comando da sessao estoura InFailedSqlTransaction e o
+        # documento cai adiante, em vez de seguir sem serial. Nao perde nada:
+        # o process_document comitou o 'processing' antes de chegar aqui.
+        db.rollback()
         logger.warning("lista de part numbers indisponivel (%s); serial nao sera pedido", exc)
         return set()
     return {k for k, linha in achados.items() if linha.requires_serial}
@@ -168,6 +173,8 @@ def process_document(
                         packaging=li.get("packaging"),
                         exporter=li.get("exporter"),
                         manufacturer=li.get("manufacturer"),
+                        unit=li.get("unit"),
+                        unit_weight=_dec(li.get("unit_weight")),
                         field_confidence=li.get("field_confidence"),
                     )
                 )
