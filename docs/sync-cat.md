@@ -12,7 +12,13 @@ estado do PR.
 
 ---
 
-## 2026-10-14 — leva 13: "provavelmente não é invoice" e aba Performance · **pacote pronto**
+## 2026-10-14 — leva 13: "provavelmente não é invoice" e aba Performance · **aplicada na VM, PR a abrir**
+
+**Aplicada limpa em 14/10:** os 14 arquivos na base prevista, `build.ps1`,
+`import function_app`, `check_rules.py` e `check_structurer.py` passaram. Um
+erro vermelho inofensivo no meio: uma linha morta do script
+(`Get-Content -TotalCount 1 -Raw`, parâmetros incompatíveis) que não decidia
+nada -- a conferência do CIV é a linha seguinte. Removida do gerador.
 
 14 arquivos (1 novo), por ZIP em base64 + script autocontido. Branch sugerida:
 `feat/nao-invoice-e-performance`. **Sem migração.** Toca `shared/shared/`,
