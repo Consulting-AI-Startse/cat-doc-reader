@@ -12,7 +12,11 @@ estado do PR.
 
 ---
 
-## 2026-10-14 — leva 13: "provavelmente não é invoice" e aba Performance · **aplicada na VM, PR a abrir**
+## 2026-10-14 — leva 13: "provavelmente não é invoice" e aba Performance · **merjado**
+
+**Merjada em 14/10.** Sem migração: entra em produção com o `app-deploy`.
+Conferência em produção ainda não registrada aqui -- faixa vermelha com uma
+carta ou certificado, página de documentos só com a lista, aba Performance.
 
 **Aplicada limpa em 14/10:** os 14 arquivos na base prevista, `build.ps1`,
 `import function_app`, `check_rules.py` e `check_structurer.py` passaram. Um
@@ -71,7 +75,15 @@ escrever, `.b64` corrompido, e `LEVA_REPO` de outro projeto definida.
 
 ---
 
-## 2026-10-14 — leva 12: packing list, métricas por período, Unit/Unit Weight, não-latino · **aplicada na VM, PR aberto**
+## 2026-10-14 — leva 12: packing list, métricas por período, Unit/Unit Weight, não-latino · **merjado**, migração 0008 a confirmar
+
+**Merjada em 14/10**, com a correção do `Dashboard.tsx` (`81bdc7de0916`) junto.
+A prova é a leva 13: o script dela conferiu os 14 arquivos na `main` da VM
+contra o "depois" desta, e todos bateram. **A migração `0007 -> 0008` foi
+iniciada no webssh, mas o resultado não foi registrado aqui:** a primeira
+tentativa falhou com o `<servidor>` literal do `DEPLOY.md`, e o
+`upgrade head` com o roteiro corrigido não voltou. Conferir pelo catálogo:
+`unit` e `unit_weight` em `invoice_part_number_items`.
 
 **Base conferida pela VM:** os 15 arquivos existentes na base prevista, os 3
 novos ausentes. Três tropeços na aplicação, nenhum de lógica:
@@ -970,6 +982,6 @@ do PR. Daí a regra de que arquivo de comunicação nunca mora no repo.
 
 ## Pendente de espelhamento
 
-Nada além da leva 13, no topo. Para conferir se algo escapou, compare os
+Nada: as levas 12 e 13 estão merjadas. Para conferir se algo escapou, compare os
 diretórios que espelham (ver a tabela no `CLAUDE.md`) contra o último ponto
 espelhado — `git ls-tree -r HEAD` dos dois lados custa um comando.
