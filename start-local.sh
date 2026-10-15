@@ -107,8 +107,8 @@ c_ok "postgres respondendo"
 
 # --- 1. shared vendorizado ---------------------------------------------------
 # A function importa 'from shared...' de uma copia dentro dela, nao do pacote:
-# shared/pyproject.toml pede Python >=3.14 e o runtime da function e 3.11, entao
-# instalar como pacote nao resolve. O deploy faz o mesmo (scripts/build.sh).
+# e o que o deploy faz (scripts/build.sh). O shared declara >=3.11, o piso dos
+# dois runtimes: backend em 3.14, function em 3.11.
 head "[1/5] shared vendorizado"
 bash "$ROOT/scripts/build.sh" >/dev/null && c_ok "copiado para backend/shared e function/shared"
 

@@ -13,7 +13,9 @@ backend (dono da persistencia) chama a function (worker de IA) por HTTP
 
 ## shared: fonte unica + vendoring no build
 
-O codigo compartilhado (config, db, models, storage) vive em UM lugar: `shared/shared/`.
+O codigo compartilhado (config, db, models, storage, dedupe, parts, confidence, metrics)
+vive em UM lugar: `shared/shared/`. As agregacoes (`confidence`, `metrics`) sao funcoes
+puras sobre dicts de proposito: o teste roda no CI sem banco nem HTTP.
 Backend e function importam `from shared...`.
 
 O problema: cada deploy da Azure e um zip self-contained (a raiz do zip vira o `wwwroot`),
@@ -44,7 +46,10 @@ Entao:
 - `pyproject.toml` (+ `uv.lock`, gerado na VM) e a fonte da verdade das deps, com o indice
   do Artifactory configurado (bloco `[[tool.uv.index]]` ou a env `UV_INDEX_URL`).
 - `requirements.txt` e um artefato gerado do uv, so third-party (o `shared` nao entra,
-  porque e vendorizado como pasta). Regenerar:
+  porque e vendorizado como pasta). **Drift conhecido (14/10):** `function/pyproject.toml`
+  nao declara `openai` nem `azure-ai-documentintelligence`, que o `requirements.txt`
+  tem -- o deploy e o CI leem o `requirements.txt`, entao funciona, mas a regra
+  "pyproject e a fonte" esta quebrada ali. Regenerar:
   `uv export --no-hashes --format requirements-txt --no-emit-project > requirements.txt`
   (e conferir que nenhuma linha de path do `shared` sobrou).
 - Na Azure, o indice do Artifactory entra por App Setting `PIP_EXTRA_INDEX_URL`
@@ -52,9 +57,20 @@ Entao:
 
 ## Banco: alembic no repo + db-setup-v2.sql
 
-`backend/alembic/` tem as migracoes, fonte da verdade do schema: 0001 inicial, 0002
-packaging vira texto, 0003 alarga os campos livres (incoterm, embalagem, partes
-envolvidas, moeda) depois de um incoterm real estourar VARCHAR(16).
+`backend/alembic/` tem as migracoes, fonte da verdade do schema:
+
+- 0001 inicial; 0002 packaging vira texto; 0003 alarga os campos livres (incoterm,
+  embalagem, partes envolvidas, moeda) depois de um incoterm real estourar VARCHAR(16);
+- 0004 `supplier` sobe do item para a invoice, e nasce a chave de duplicata
+  (invoice + fornecedor) com `duplicate_of_id`;
+- 0005 lista de part numbers liberados (`released_part_numbers`, ~206 mil linhas) e
+  `serial_rules`; `requires_serial` e derivado da regra, nao importado;
+- 0006 `serial_number` no item (motor repete o mesmo PN, uma vez por serial);
+- 0007 confianca por campo: JSONB na linha e no cabecalho, agregados em coluna na invoice;
+- 0008 `unit` e `unit_weight` (kg) no item. So colunas nulas, sem GRANT novo.
+
+Toda migracao que CRIA TABELA exige conferir os privilegios das Managed Identities
+depois (`DEPLOY.md`): o `pg_default_acl` de producao ja esteve vazio.
 
 `db/db-setup-v2.sql` e o mesmo schema achatado, na **head 0008**, pra aplicar direto no
 ambiente da CAT (Fase 0 do DEPLOY.md). E **gerado, nao editado a mao**:
@@ -104,6 +120,8 @@ settings e procedimento de remocao em `docs/modo-local.md`.
 
 ## Fluxo de deploy (resumo)
 
-1. Aplicar o schema: `db/db-setup-v2.sql` (uma vez).
-2. `scripts/build` (vendoriza o shared).
-3. Empacotar e subir cada servico (ver `DEPLOY.md`).
+Quem publica e o workflow `app-deploy.yml` (em `aiagent-documentreader-infrastructure-azure/
+workflows/`, copiado para `.github/workflows/` do lado da CAT): roda `scripts/build.sh`,
+empacota os tres servicos e publica. O que ele NAO faz, e fica no `DEPLOY.md`: aplicar
+migracao (roda como admin, pelo webssh), conferir privilegios das MIs, e o schema inicial
+`db/db-setup-v2.sql` num ambiente novo.

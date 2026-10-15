@@ -13,9 +13,9 @@ Esforço: **XS** < 1h · **S** ~meio dia · **M** ~1–2 dias · **L** ~1 semana
 | ~~4~~ | ~~Serial Number~~ | M | alto | **feito** |
 | ~~5~~ | ~~Confiança por campo e geral~~ | M | alto | **feito** |
 | ~~6~~ | ~~Duplicatas por (invoice, fornecedor)~~ | M | médio | **feito** |
-| 7 | Classificação invoice × packing list | L | alto | — |
+| ~~7~~ | ~~Classificação invoice × packing list~~ | M | alto | **feito** |
 | ~~8~~ | ~~Relatório de confiança por fornecedor~~ | M | médio | **feito** |
-| 9 | Métricas de processamento por período | M | médio | — |
+| ~~9~~ | ~~Métricas de processamento por período~~ | M | médio | **feito** |
 | — | `Invoice Type`, `Import Process`, `CSAR`, `PFO`, `##` | ? | ? | **bloqueado** |
 | ~~—~~ | ~~Texto fora do alfabeto latino~~ | S | médio | **feito** |
 | — | Word/Excel | ? | ? | **escopo indefinido** |
@@ -167,7 +167,8 @@ quem julga.
 ### Tela
 
 `frontend/src/pages/PartNumbers.tsx`, registrada em `main.tsx` (uma linha antes
-do catch-all) e linkada no `AppShell.tsx`, que hoje não tem menu.
+do catch-all) e linkada no menu do `AppShell.tsx` (Documentos, Part numbers,
+Fornecedores).
 
 Dois detalhes achados na exploração:
 
@@ -362,14 +363,50 @@ a duplicata é por invoice, nunca por documento.
 - **Só o novo é marcado.** O antigo é a referência, sempre.
 - **Sem backfill.** O banco de produção começa zerado.
 
-## 7. Classificação invoice × packing list (L)
+## 7. Classificação invoice × packing list (M) — feito em 14/10
 
 Premissa: "IDENTIFICAR AQUILO QUE É UMA INVOICE OU NÃO". São **10 dos 30
-documentos** do plano de aceitação, e hoje não temos nada: mandamos o documento
-inteiro para o LLM e torcemos para ele ignorar o packing list.
+documentos** do plano de aceitação, e até aqui mandávamos o documento inteiro
+para o LLM e torcíamos para ele ignorar o packing list.
 
-Decisão por página, aproveitando o markdown por página que o extractor local já
-produz.
+**Como ficou.** Decisão por página, **antes** do LLM e determinística, em
+`function/pipeline/pages.py`. O plano original falava num "markdown por
+página que o extractor local já produz" — **não existe**: o Document
+Intelligence devolve uma string só, com `<!-- PageBreak -->` entre as páginas.
+Os spans saem desses marcadores, e o `content` nunca é reescrito (a confiança
+por campo localiza por offset nele).
+
+Por página, três sinais em regex: **título de embarque** (`PACKING LIST`,
+`LOADLIST`, e a família fraca `DDT` / `DELIVERY NOTE` / `DOCUMENTO DI
+TRASPORTO`), **rótulo de preço** (`UNIT PRICE`, `AMOUNT`, `PREZZO`, `PREÇO`...)
+e **moeda solta**. Título forte com preço é `mixed` (vai ao modelo como fatura
+e vira problema); título sem preço é `packing_list`; sem título, qualquer
+dinheiro é `invoice`, e duas marcas de peso sem dinheiro é `packing_list`.
+`INVOICE` sozinho pesa zero: packing list cita "Invoice No.".
+
+**Calibrado no CIV (35 páginas, 6 fornecedores):** 17 páginas de fatura, 11
+de embarque, nenhuma mista. Três coisas que a calibração ensinou e que o
+teste trava (`check_structurer.py` seção 13, `check_rules.py`): fatura
+italiana imprime `Netto` e cita a DDT como referência, e continua fatura; o
+rodapé legal da Dana imprime `€` na página do packing list, e ela continua
+packing list; e a família "nota de entrega" nunca é `mixed`, porque a própria
+fatura a cita.
+
+O modelo recebe a lista de páginas no user message e a regra 12 do prompt
+(nunca criar item de página de embarque; usar só para peso e embalagem). Como
+prompt é pedido e não contrato, o `_normalise` confere: linha cujo part number
+só existe em página de embarque recebe problema (marcar, nunca descartar — e a
+aritmética confirma, porque a linha a mais estoura o total). Documento em que
+**nenhuma** página é fatura vai para revisão com "nenhuma página de fatura
+identificada": é o "é invoice ou não" do contrato.
+
+Sem migração: `page_kinds` vai no `raw_extraction.structured`, sai no payload
+e aparece no painel "Decisões da extração" da revisão.
+
+**Pendente, fora do código:** rodar `classify_pages` nos raw JSONs dos 10 PDFs
+"Invoice + Packing List" do corpus (estão na máquina do Luis). O teste
+sintético prova a mecânica; a cobertura das keywords em outras línguas é
+hipótese até ser medida.
 
 ## 8 e 9
 
@@ -383,8 +420,18 @@ produz.
   invoices, e a data delas é a da última edição. Invoice sem nota (modo local,
   anterior à 0007) conta como invoice e não entra nas médias. A agregação é
   pura, em `shared/confidence.py`, e o teste está no `check_rules.py`.
-- **Métricas de processamento por período** — premissa "MÉTRICAS DE PERFORMANCE
-  DO AGENTE, DE PROCESSAMENTO E POR PERÍODO".
+- **Métricas de processamento por período** — **feito em 14/10.** Premissa
+  "MÉTRICAS DE PERFORMANCE DO AGENTE, DE PROCESSAMENTO E POR PERÍODO".
+  `GET /dashboard/metrics?days=` (0 = tudo) e a agregação pura em
+  `shared/metrics.py`, testada no `check_rules.py`. Além das contagens: tempo
+  de processamento (evento `processing` → `processed_at`) e upload → resultado,
+  mediana e p90; fração de documentos terminados **sem** passar por revisão
+  (rejeitado não conta como sucesso); campos corrigidos sobre pontuados;
+  duplicatas. **Mudança de semântica:** `valor_total_extraido` deixa de somar
+  cópia de duplicata, rejeitado e erro. O worker passou a gravar `processed_at`
+  também no erro — o `created_at` do evento não serve de fim, porque o `now()`
+  do Postgres é o início da transação. Tela: seletor 7/30/90/Tudo e a fileira
+  de performance do agente.
 
 ## Texto fora do alfabeto latino — feito em 08/10
 

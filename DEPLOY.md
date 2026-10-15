@@ -7,6 +7,30 @@ passo, porque o backend chama a function por HTTP (arquitetura separada, como pl
 
 Modelo de trabalho: você roda estes comandos na VM; se algo falhar, cola o erro que eu ajusto.
 
+> **Desde 27/09 o deploy de código é o workflow `app-deploy.yml`** (push na `main`
+> da CAT, ou dispatch manual por serviço), e as seções 1 a 3 abaixo são o
+> roteiro **manual**, de contingência. O que o workflow faz diferente, e que
+> importa se você for pela mão:
+>
+> - **Frontend:** o zip leva `dist/`, `server.cjs` e `package.json`, o startup
+>   é `node server.cjs` (definido ANTES do publish) e o deploy é `--clean true`.
+>   Não é mais `pm2 serve`: o `server.js` morria como ESM por causa do
+>   `"type": "module"` do Vite (leva 7).
+> - **Function:** as dependências são instaladas **dentro do pacote** no runner
+>   (`pip install --target function/.python_packages/lib/site-packages
+>   --platform manylinux_2_28_x86_64 --python-version 3.11 --only-binary=:all:`),
+>   com build remoto desligado. O Oryx (opção B da seção 3.2) depende de uma
+>   app setting que todo run de infraestrutura apaga; e wheel `manylinux_2_34`
+>   não carrega na glibc 2.31 do host (levas 8 e 9).
+> - **Settings da function** são reaplicadas pelo job `settings` do workflow,
+>   porque o run de infraestrutura as apaga. Incluem, além da seção 3.1:
+>   `AZURE_DOCINTEL_ENDPOINT`, `AZURE_OPENAI_ENDPOINT`,
+>   `AZURE_OPENAI_DEPLOYMENT=gpt-4.1`, `AZURE_OPENAI_API_VERSION=2024-10-21` e
+>   `AZURE_DOCINTEL_HIGH_RES=false` (o padrão do código é `true`).
+> - **Migração nunca é automática:** se o push trouxer arquivo novo em
+>   `alembic/versions`, o job `migrate` imprime o roteiro e para. É a seção
+>   "Migração de schema" abaixo.
+
 ---
 
 ## 0. Pré-requisitos (uma vez por sessão na VM)
@@ -183,8 +207,16 @@ az functionapp config appsettings set -g $RG -n $FUNC --settings `
   DATABASE_URL="postgresql+psycopg://$FUNC@$PGHOST`:5432/documentreader?sslmode=require" `
   AZURE_STORAGE_ACCOUNT_URL="https://$ST.blob.core.windows.net" `
   BLOB_CONTAINER_NAME=invoices `
-  USE_REAL_SERVICES=true
+  USE_REAL_SERVICES=true `
+  AZURE_DOCINTEL_ENDPOINT="<endpoint do Document Intelligence>" `
+  AZURE_DOCINTEL_HIGH_RES=false `
+  AZURE_OPENAI_ENDPOINT="<endpoint do Azure OpenAI>" `
+  AZURE_OPENAI_DEPLOYMENT=gpt-4.1 `
+  AZURE_OPENAI_API_VERSION=2024-10-21
 ```
+> `USE_REAL_SERVICES=false` faz a function rodar **mockada sem emitir erro** --
+> o `DEPLOY.md` da CAT já mandou configurar assim, e custou uma leva para
+> descobrir. O workflow falha o job se o valor não for `true`.
 
 ### 3.2 Deploy do código
 

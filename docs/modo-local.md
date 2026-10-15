@@ -46,9 +46,9 @@ uv pip install --python .venv/bin/python -r requirements.txt
 ```
 
 O `start-local.sh` roda o `scripts/build.sh` antes de tudo, porque a function
-importa `shared` de uma copia vendorizada e nao do pacote: `shared/pyproject.toml`
-declara `requires-python = ">=3.14"` enquanto o runtime da function e 3.11, entao
-instalar como pacote nao resolve. O deploy faz exatamente o mesmo.
+importa `shared` de uma copia vendorizada e nao do pacote, que e o que o deploy
+faz (`shared/pyproject.toml` declara `>=3.11`, o piso dos dois runtimes; o
+backend roda em 3.14 e a function em 3.11 -- ver `docs/ambiente.md`).
 
 No Windows/VM o equivalente e o `start-local.ps1`.
 
@@ -71,8 +71,11 @@ OPENROUTER_MODEL=openai/gpt-4.1
 ```
 
 Opcionais: `LOCAL_EXTRACTOR_FORCE_OCR` (ignora a camada de texto e OCRa a
-página inteira — ajuda quando a camada é ruim, atrapalha quando é boa) e
-`OPENROUTER_MAX_TOKENS` (padrão 16000; alguns modelos capam mais baixo).
+página inteira — ajuda quando a camada é ruim, atrapalha quando é boa),
+`LOCAL_EXTRACTOR_FIX_ROTATION` (classificador de ângulo do RapidOCR antes do
+OCR; padrão ligado), `LOCAL_EXTRACTOR_DPI` (renderização da página no fallback
+por imagem; padrão 150) e `OPENROUTER_MAX_TOKENS` (padrão 16000; alguns modelos
+capam mais baixo).
 
 Variável de ambiente vence o `.env.local`, que vence o `.env`.
 
@@ -88,6 +91,7 @@ cada uma o seu lado:
 | **true** | **true** | false | **Docling** | **OpenRouter** |
 | true | false | false | Docling | Mock — **inútil**, ver abaixo |
 | false | true | true | Document Intelligence | OpenRouter |
+| true | false | true | Docling | Azure OpenAI — a combinação que mais importa: OCR local, prompt e modelo de produção |
 
 A quarta linha é a armadilha: o `MockStructurer` monta os invoices a partir de
 `extraction["invoices"]`, e o Docling devolve essa lista vazia porque não tem
@@ -255,8 +259,9 @@ E tirar:
 - as cinco linhas de exclusão do `function/.funcignore`;
 - os dois blocos marcados como desenvolvimento local em
   `doc_worker.build_extractor()` e `build_structurer()`;
-- `use_local_extractor`, `local_extractor_force_ocr`, `use_local_structurer` e
-  as três `openrouter_*` em `shared/shared/config.py`;
+- `use_local_extractor`, `local_extractor_force_ocr`,
+  `local_extractor_fix_rotation`, `local_extractor_dpi`, `use_local_structurer`
+  e as três `openrouter_*` em `shared/shared/config.py`;
 - `.env.local` de `model_config` no mesmo arquivo, se não houver outro uso;
 - a seção correspondente no `STRUCTURE.md`.
 

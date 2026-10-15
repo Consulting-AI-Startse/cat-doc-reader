@@ -4,7 +4,7 @@ O que precisa estar instalado para o `./start-local.sh` subir, e em que versão
 isso foi verificado. **Mantenha atualizado**: quando trocar uma versão ou
 acrescentar uma dependência de ambiente, atualize aqui na mesma leva.
 
-Última verificação: **2026-09-21**.
+Última verificação: **2026-10-14**.
 
 ## Ferramentas
 
@@ -45,6 +45,13 @@ uv pip install --python .venv/bin/python -r requirements.txt
 
 O `shared` não é instalado como pacote em nenhum dos dois: é vendorizado por
 `scripts/build.sh`, que é o que o deploy faz.
+
+**O CI da CAT instala só o `requirements.txt` de cada serviço.** A venv local,
+montada do `pyproject.toml`, arrasta o modo local junto (Docling, `openai`) e
+pode ter pacote que lá não existe — `httpx`, que o `TestClient` do FastAPI
+exige, foi o caso. Teste de lógica não sobe HTTP: a função pura vai para o
+`shared` e o check chama direto. Para ver o que o CI vê, monte uma venv limpa
+com `python -m venv` + `pip install -r backend/requirements.txt`.
 
 ## Pacotes que importam
 
@@ -151,7 +158,7 @@ Confira o conteúdo:
 
 ```powershell
 Get-ChildItem ./function/shared | Select-Object Name, Length
-# 5 modulos: __init__, config, db, models, storage
+# 9 modulos: __init__, config, confidence, db, dedupe, metrics, models, parts, storage
 ```
 
 O `scripts/build` apaga antes de copiar, então resolve cópia parcial também.
