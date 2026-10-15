@@ -12,7 +12,23 @@ estado do PR.
 
 ---
 
-## 2026-10-14 — leva 12: packing list, métricas por período, Unit/Unit Weight, não-latino · **pacote pronto, aguardando os blobs da VM**
+## 2026-10-14 — leva 12: packing list, métricas por período, Unit/Unit Weight, não-latino · **aplicada na VM, PR aberto**
+
+**Base conferida pela VM:** os 15 arquivos existentes na base prevista, os 3
+novos ausentes. Três tropeços na aplicação, nenhum de lógica:
+
+- o script obedecia `LEVA_REPO`, e a VM já tinha essa variável de outro
+  projeto: apontou para `AICOE_Invoice_Validation_POV` e parou no `DIVERGE`,
+  sem escrever;
+- o `check_rules.py` caiu com `UnicodeEncodeError` ao imprimir `DOKTAŞ` no
+  console `cp1252`; passou com `PYTHONUTF8=1`. Corrigido aqui em `93711fe`,
+  vai na próxima leva;
+- **o `app-ci` caiu no `tsc -b`** do frontend: o `CardDef` do `Dashboard.tsx`
+  aceitava a chave `Duration`. Aqui o erro não apareceu porque a conferência
+  foi `tsc -p .`, e o `tsconfig.json` da raiz tem `"files": []`. Corrigido em
+  `52935e3`, aplicado **à mão na branch da CAT** por
+  dois `Replace` no PowerShell, conferido pelo blob `81bdc7de0916`.
+  **Frontend se confere com `npm run build`, nunca com `tsc -p .`.**
 
 Tudo que foi feito depois da leva 11 (01/10), numa leva só: 18 caminhos (3
 novos), por ZIP em base64 + script autocontido. Branch sugerida:
@@ -77,7 +93,7 @@ Linux, não no Windows: a máquina de desenvolvimento não tem a venv Windows.
 | `backend/alembic/versions/0008_unit_and_unit_weight.py` | `(novo)` | `c3aeb598674b` |
 | `db/db-setup-v2.sql` | `53612e403da9` | `f66a3bd291ec` |
 | `frontend/src/pages/DocumentDetail.tsx` | `1b5167c9e9dc` | `ccf2991439e3` |
-| `frontend/src/pages/Dashboard.tsx` | `42c1f59f4707` | `c9f76986be2a` |
+| `frontend/src/pages/Dashboard.tsx` | `42c1f59f4707` | `c9f76986be2a`, depois `81bdc7de0916` (à mão) |
 | `frontend/src/api/documents.ts` | `3989bc8f073f` | `40f6473a8c0e` |
 | `frontend/src/types/document.ts` | `4ce26ef4b632` | `57e6007cc390` |
 | `check_rules.py` | `e488e623623d` | `26847bf04572` |
