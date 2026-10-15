@@ -403,6 +403,28 @@ identificada": é o "é invoice ou não" do contrato.
 Sem migração: `page_kinds` vai no `raw_extraction.structured`, sai no payload
 e aparece no painel "Decisões da extração" da revisão.
 
+**"Provavelmente não é invoice" (14/10, leva 13).** A primeira versão só
+reconhecia documento de embarque; carta, certificado ou contrato chegavam ao
+modelo como fatura e caíam na revisão pela razão genérica. Agora o
+`_normalise` marca o documento quando qualquer destes vale: nenhuma palavra
+de título de fatura (`INVOICE`, `FATTURA`, `FATURA`, `FAKTURA`, `FACTURE`,
+`FACTURA`, `RECHNUNG`, `NOTA FISCAL`) no documento **inteiro** — as páginas de
+continuação do CIV não trazem a palavra, então nunca por página —; todas as
+páginas são de embarque; o modelo não achou nenhuma invoice; ou metade ou mais
+dos campos devolvidos não existem no texto (com pelo menos 4 campos).
+
+A confiança média do OCR **não** entra, decidido com o Luis: ela mede a
+leitura, não o tipo, e um terço do plano de aceitação é escaneado — fatura
+real mal escaneada sairia como "não é invoice". Quem mede invenção é o campo
+que não existe no texto. O CIV sai sem marca (1 campo não localizado em 52).
+A marca aparece como faixa vermelha no topo da revisão, no padrão da
+duplicata, e não bloqueia: o revisor rejeita se concordar.
+
+**Não coberto:** pedido de compra, cotação e proforma têm preço e trazem
+"invoice" no texto ("invoice to"), então passam como fatura. Separar exige
+título próprio (`PURCHASE ORDER`, `QUOTATION`, `PROFORMA`) e documento real
+para calibrar.
+
 **Pendente, fora do código:** rodar `classify_pages` nos raw JSONs dos 10 PDFs
 "Invoice + Packing List" do corpus (estão na máquina do Luis). O teste
 sintético prova a mecânica; a cobertura das keywords em outras línguas é
@@ -432,6 +454,14 @@ hipótese até ser medida.
   também no erro — o `created_at` do evento não serve de fim, porque o `now()`
   do Postgres é o início da transação. Tela: seletor 7/30/90/Tudo e a fileira
   de performance do agente.
+
+  **Leva 13:** os números saíram da página de documentos, que ficou só com a
+  lista e o upload, e foram para a aba **Performance** (`/performance`): cards
+  do agente e de volume, barras por dia por desfecho (sem revisão, revisão,
+  erro, em processamento) e o tempo mediano por dia. Gráfico em SVG, sem
+  biblioteca — seria dependência nova no Artifactory da CAT. O dia é o de
+  Brasília (em UTC, upload das 22h caía no dia seguinte), e dia sem documento
+  entra com zero, para a parada aparecer.
 
 ## Texto fora do alfabeto latino — feito em 08/10
 

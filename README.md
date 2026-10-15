@@ -56,7 +56,8 @@ function/            Function App (worker de IA)
   pipeline/          extractor.py (OCR), pages.py (invoice x packing list, antes
                      do LLM), structurer.py (LLM), confidence.py (nota por campo)
 frontend/            React + Vite + Tailwind -> App Service
-  src/pages/         Dashboard, DocumentDetail (revisao), PartNumbers, Suppliers
+  src/pages/         Dashboard (lista e upload), DocumentDetail (revisao),
+                     PartNumbers, Suppliers, Performance (metricas do agente)
 db/db-setup-v2.sql   schema achatado na head 0008 (GERADO, ver STRUCTURE.md)
 aiagent-documentreader-infrastructure-azure/
   workflows/         app-ci.yml e app-deploy.yml: o CI/CD de aplicacao da CAT
