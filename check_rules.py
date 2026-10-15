@@ -426,6 +426,46 @@ check("sem classificacao: nada muda",
       _normalise({"invoices": []}, None, [], None, "", set())["page_kinds"], [])
 
 
+print("=== provavelmente nao e invoice: os quatro motivos ===")
+from pipeline.pages import has_invoice_title
+check("titulo em italiano", has_invoice_title("FATTURA N. 2573"), True)
+check("titulo em portugues", has_invoice_title("Fatura Nº 9028078388"), True)
+check("sem titulo", has_invoice_title("CERTIFICATE OF ORIGIN"), False)
+# 'invoiced' nao e titulo: fronteira de palavra.
+check("palavra derivada nao conta", has_invoice_title("to be invoiced later"), False)
+
+CARTA = "Dear Sir,\nPlease find attached the certificate of origin.\nBest regards"
+carta = _normalise({"invoices": []}, None, [], None, CARTA, set(), None, classify_pages(CARTA))
+check("carta: marcada", carta["not_invoice"]["likely"], True)
+check("carta: sem titulo e sem invoice",
+      [m.split(" (")[0] for m in carta["not_invoice"]["reasons"]],
+      ["nenhuma palavra de titulo de fatura no documento", "o modelo nao achou nenhuma invoice no documento"])
+check("carta: vai para revisao", any(v.startswith("provavelmente nao e uma invoice")
+                                     for v in carta["validation"]), True)
+check("so packing list: marcado com o motivo de embarque",
+      "todas as paginas sao packing list / nota de entrega" in so_packing["not_invoice"]["reasons"], True)
+check("fatura de verdade: sem marca", ok["not_invoice"], {"likely": False, "reasons": []})
+check("sem classificacao de paginas: nunca marca",
+      _normalise({"invoices": []}, None, [], None, CARTA, set())["not_invoice"]["likely"], False)
+
+# Campo inventado: com indice de palavras, o que o modelo devolveu e nao existe
+# no texto vira 'not_located'. Metade ou mais, com pelo menos 4 campos, marca.
+TEXTO = "INVOICE 123\n463-8344 2 10,00 20,00\nTOTAL 20,00"
+palavras = [(0, len(TEXTO), 0.99)]
+inventada = {"invoices": [{"invoice_number": "999", "total": "77,00", "line_items": [
+    {"part_number": "674-8657", "quantity": "5", "unit_price": "3,00", "amount": "15,00"}]}]}
+r = _normalise(inventada, None, [], None, TEXTO, set(), palavras, classify_pages(TEXTO))
+check("campos inventados: marcado", any("nao existem no texto" in m for m in r["not_invoice"]["reasons"]), True)
+lida = {"invoices": [{"invoice_number": "123", "total": "20,00", "line_items": [
+    {"part_number": "463-8344", "quantity": "2", "unit_price": "10,00", "amount": "20,00"}]}]}
+r = _normalise(lida, None, [], None, TEXTO, set(), palavras, classify_pages(TEXTO))
+check("campos lidos: sem marca", r["not_invoice"]["likely"], False)
+# Leitura RUIM nao e documento errado: nota baixa, valor presente.
+fraca = [(0, len(TEXTO), 0.30)]
+r = _normalise(lida, None, [], None, TEXTO, set(), fraca, classify_pages(TEXTO))
+check("fatura mal escaneada: revisao, mas sem marca",
+      (r["not_invoice"]["likely"], r["confidence"] < 0.85), (False, True))
+
 # --- metricas de processamento por periodo (dashboard) ------------------------
 from datetime import datetime, timedelta, timezone
 from shared.metrics import processing_report, _percentile
@@ -492,6 +532,33 @@ check("vazio: duracao None", (vazio["processing_seconds"]["median"], vazio["proc
 atras = processing_report([doc("extracted", started=100, done=50)])
 check("delta negativo fica fora", atras["processing_seconds"]["n"], 0)
 check("mas o turnaround conta", atras["turnaround_seconds"]["n"], 1)
+
+
+print("=== serie diaria: um ponto por dia, inclusive o vazio ===")
+from shared.metrics import daily_series
+D1 = datetime(2026, 10, 12, 15, 0, tzinfo=timezone.utc)   # 12h em Brasilia
+D3 = datetime(2026, 10, 14, 1, 30, tzinfo=timezone.utc)   # 13/10 22h30 em Brasilia
+def doc_em(quando, status, reviewed=False, not_invoice=False, seg=60):
+    return {"status": status, "created_at": quando, "started_at": quando,
+            "processed_at": quando + timedelta(seconds=seg), "reviewed": reviewed,
+            "not_invoice": not_invoice, "invoices": []}
+serie = daily_series([doc_em(D1, "extracted"), doc_em(D1, "needs_review", seg=120),
+                      doc_em(D3, "error"), doc_em(D3, "rejected", not_invoice=True)],
+                     days=4, today=datetime(2026, 10, 14, 18, 0, tzinfo=timezone.utc))
+check("quatro dias, com o vazio", [p["date"] for p in serie],
+      ["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14"])
+check("dia vazio com zeros", (serie[0]["received"], serie[0]["processing_median"]), (0, None))
+check("12/10: um auto, um revisao", (serie[1]["auto"], serie[1]["review"]), (1, 1))
+# 22h30 de Brasilia e o dia 13, mesmo sendo 14 em UTC.
+check("upload da noite cai no dia certo", serie[2]["received"], 2)
+check("13/10: erro e nao-invoice", (serie[2]["error"], serie[2]["not_invoice"]), (1, 1))
+check("mediana do dia", serie[1]["processing_median"], 60.0)
+check("Tudo: do primeiro upload ate hoje",
+      len(daily_series([doc_em(D1, "extracted")], 0,
+                       today=datetime(2026, 10, 14, 18, 0, tzinfo=timezone.utc))), 3)
+check("sem documento e sem hoje: vazio", daily_series([], 0), [])
+check("relatorio conta nao-invoice",
+      processing_report([doc_em(D1, "rejected", not_invoice=True)])["nao_invoice"], 1)
 
 print()
 if falhas:

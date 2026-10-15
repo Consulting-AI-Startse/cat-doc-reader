@@ -53,6 +53,20 @@ _CURRENCY_RE = re.compile(
 
 INVOICE, PACKING_LIST, MIXED, UNKNOWN = "invoice", "packing_list", "mixed", "unknown"
 
+# Palavra de titulo de fatura, nas linguas do corpus. Medido no CIV (14/10):
+# os 6 fornecedores trazem pelo menos uma; as paginas de continuacao (15, 31,
+# 33) nao, entao isto vale para o DOCUMENTO, nunca por pagina. E o sinal so
+# vale num sentido: a AUSENCIA diz muito, a presenca pouco -- o packing list
+# do CIV imprime "COMMERCIAL INVOICE" em cinco paginas, e pedido de compra
+# costuma trazer "invoice to".
+_INVOICE_TITLE_RE = re.compile(
+    r"\b(?:INVOICE|FATTURA|FATURA|FAKTURA|FACTURE|FACTURA|RECHNUNG|"
+    r"NOTA\s+FISCAL)\b", re.IGNORECASE)
+
+
+def has_invoice_title(content: str) -> bool:
+    return bool(_INVOICE_TITLE_RE.search(content or ""))
+
 
 def page_spans(content: str) -> list[dict]:
     """Um span por pagina, 1-based pela ordem no markdown.

@@ -104,6 +104,13 @@ export interface PageKindEntry {
   evidence: string[];
 }
 
+/** Decidido pelo structurer: sem titulo de fatura, so paginas de embarque,
+ *  nenhuma invoice achada, ou campos que nao existem no texto. */
+export interface NotInvoice {
+  likely: boolean;
+  reasons: string[];
+}
+
 export interface DocumentEvent {
   event_type: string;
   actor: string | null;
@@ -127,6 +134,7 @@ export interface DocumentDetail {
   discarded_lines: DiscardedLine[];
   /** Vazio em documento anterior à classificação de páginas. */
   page_kinds: PageKindEntry[];
+  not_invoice: NotInvoice;
   invoices: Invoice[];
   events: DocumentEvent[];
 }
@@ -148,6 +156,18 @@ export interface Duration {
   n: number;
 }
 
+/** Um dia do período, inclusive os dias sem documento. */
+export interface DayPoint {
+  date: string;
+  received: number;
+  pending: number;
+  auto: number;
+  review: number;
+  error: number;
+  not_invoice: number;
+  processing_median: number | null;
+}
+
 export interface Metrics {
   days: number;
   documentos: number;
@@ -158,6 +178,8 @@ export interface Metrics {
   rejeitados: number;
   erros: number;
   duplicatas: number;
+  /** Documentos marcados como "provavelmente não é invoice". */
+  nao_invoice: number;
   /** Sem cópia de duplicata, rejeitado ou erro. */
   valor_total_extraido: number;
   /** extracted + needs_review + approved + rejected. */
@@ -173,6 +195,7 @@ export interface Metrics {
   fields_scored: number;
   fields_corrected: number;
   fields_corrected_rate: number | null;
+  series: DayPoint[];
 }
 // --- Payload do PATCH (revisão humana): a mesma forma que o backend espera. ---
 

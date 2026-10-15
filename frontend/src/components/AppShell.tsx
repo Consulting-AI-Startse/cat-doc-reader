@@ -17,6 +17,7 @@ export function AppShell() {
               { to: "/", rotulo: "Documentos", exato: true },
               { to: "/part-numbers", rotulo: "Part numbers", exato: false },
               { to: "/fornecedores", rotulo: "Fornecedores", exato: false },
+              { to: "/performance", rotulo: "Performance", exato: false },
             ].map((item) => (
               <NavLink
                 key={item.to}

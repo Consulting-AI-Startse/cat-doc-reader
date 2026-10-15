@@ -308,6 +308,30 @@ export function DocumentDetail() {
               )}
             </div>
 
+            {/* Mesmo padrao da duplicata, mas no documento: muitas vezes o
+                modelo nao devolve invoice nenhuma, entao nao ha card para
+                contornar. Nao bloqueia nada -- quem decide e o revisor. */}
+            {data.not_invoice?.likely && (
+              <div className="mt-4 rounded-xl border-2 border-red-400 bg-red-50 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-semibold text-white">
+                    NÃO É INVOICE?
+                  </span>
+                  <span className="text-sm font-medium text-red-900">
+                    Este documento provavelmente não é uma invoice.
+                  </span>
+                </div>
+                <ul className="mt-2 space-y-0.5 text-xs text-red-800">
+                  {data.not_invoice.reasons.map((m, k) => (
+                    <li key={k}>• {m}</li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-xs text-red-700">
+                  Se concordar, rejeite o documento. Se for uma invoice, revise normalmente.
+                </p>
+              </div>
+            )}
+
             {data.status === "error" && data.error_message && (
               <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{data.error_message}</div>
             )}

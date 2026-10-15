@@ -103,6 +103,17 @@ def _serialize_invoice(inv: Invoice) -> dict:
     }
 
 
+def _not_invoice(doc: Document) -> dict:
+    """A marca de "provavelmente nao e invoice", do raw_extraction.
+
+    Documento anterior a ela nao tem a chave: sem marca.
+    """
+    bruto = (doc.raw_extraction or {}).get("structured") or {}
+    marca = bruto.get("not_invoice") or {}
+    motivos = [str(m) for m in (marca.get("reasons") or [])]
+    return {"likely": bool(marca.get("likely")) and bool(motivos), "reasons": motivos}
+
+
 def _extract_notes(doc: Document) -> tuple[list[str], list[str], list[dict], list[dict]]:
     """Notas de validacao, linhas descartadas e tipo de pagina, do raw_extraction.
 
@@ -161,6 +172,7 @@ def _serialize_document(doc: Document) -> dict:
         "notes": notas,
         "discarded_lines": descartadas,
         "page_kinds": paginas,
+        "not_invoice": _not_invoice(doc),
         "invoices": [_serialize_invoice(i) for i in doc.invoices],
         "events": [
             {

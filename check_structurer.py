@@ -440,6 +440,8 @@ r = _normalise(civ, None, [], None, content, set(), palavras, kinds)
 check("nenhuma linha gravada vem so do embarque",
       [v for v in r["validation"] if "so aparece em pagina" in v], [])
 check("a nota lista as paginas", any("2, 3, 6, 9, 10" in n for n in r["notes"]), True)
+# 1 campo nao localizado em 52 (o '5700000' da fixture): longe da metade.
+check("o CIV nao e marcado como nao-invoice", r["not_invoice"], {"likely": False, "reasons": []})
 low = re.sub(r"\s+", " ", _PACKING_RULES.lower())
 check("regra 12 proibe item de pagina de embarque", "never create an invoice or a line item" in low, True)
 check("mas deixa usar o peso", "unit_weight" in low, True)

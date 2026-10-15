@@ -28,12 +28,14 @@ def _docs(db: Session, days: int) -> list[dict]:
     out = []
     for doc in db.scalars(q).all():
         inicio = [e.created_at for e in doc.events if e.event_type == "processing"]
+        marca = ((doc.raw_extraction or {}).get("structured") or {}).get("not_invoice") or {}
         out.append({
             "status": doc.status.value,
             "created_at": doc.created_at,
             "started_at": min(inicio) if inicio else None,
             "processed_at": doc.processed_at,
             "reviewed": any(e.event_type == "needs_review" for e in doc.events),
+            "not_invoice": bool(marca.get("likely")),
             "invoices": [{
                 "duplicate": inv.duplicate_of_id is not None,
                 "amount": sum(float(li.amount) for li in inv.line_items
@@ -50,4 +52,5 @@ def metrics(
     days: int = Query(0, ge=0, description="janela em dias; 0 = tudo"),
     db: Session = Depends(get_db),
 ):
-    return {"days": days, **processing_report(_docs(db, days))}
+    report = processing_report(_docs(db, days), days, datetime.now(timezone.utc))
+    return {"days": days, **report}

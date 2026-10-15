@@ -1120,6 +1120,11 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
         if piores is not None:
             confidence, source = piores, "fields"
 
+    motivos = _not_invoice(page_kinds, content, len(entries), invoices,
+                           word_index is not None)
+    if motivos:
+        issues.append("provavelmente nao e uma invoice: " + "; ".join(motivos))
+
     if issues:
         confidence = min(confidence, REVIEW_CONFIDENCE)
         for problem in issues:
@@ -1133,7 +1138,63 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
             "validation": issues, "notes": notas,
             # Vai para raw_extraction.structured e dali para a tela: o
             # revisor ve quais paginas foram ignoradas e por que.
-            "page_kinds": _page_kinds_out(page_kinds)}
+            "page_kinds": _page_kinds_out(page_kinds),
+            # Faixa vermelha na revisao. Marcar, nunca descartar: quem decide
+            # e o revisor, rejeitando o documento se concordar.
+            "not_invoice": {"likely": bool(motivos), "reasons": motivos}}
+
+
+# Campos que o modelo devolveu e que nao estao em lugar nenhum do texto.
+# 'unanchored' entra junto: e numero de uma linha cujo part number tambem nao
+# foi achado.
+_INVENTADO = ("not_located", "unanchored")
+# Fracao de campos inventados que marca o documento, com um minimo de campos
+# para a fracao valer alguma coisa. Calibrado no CIV, que fica sem marca:
+# 1 campo nao localizado em 52 (o '5700000' da fixture).
+NOT_INVOICE_MISSING_FRACTION = 0.5
+NOT_INVOICE_MIN_FIELDS = 4
+
+
+def _not_invoice(page_kinds, content: str, entries: int, invoices: list,
+                 scored: bool) -> list[str]:
+    """Motivos para dizer que o documento provavelmente nao e uma invoice.
+
+    So roda quando a classificacao de paginas rodou (`page_kinds` nao e None),
+    que e o caminho de producao: os testes antigos chamam _normalise com
+    trechos soltos de texto, que nao sao documento nenhum.
+
+    Nao usa a confianca media do OCR, de proposito: ela mede a LEITURA, nao
+    o tipo do documento. Um terco do plano de aceitacao e PDF escaneado, e
+    uma fatura real mal escaneada sairia como "nao e invoice". Quem mede
+    invencao e o campo que nao existe no texto -- uma fatura mal escaneada
+    continua com os valores la, so com nota baixa.
+    """
+    if page_kinds is None:
+        return []
+    motivos = []
+    if content.strip() and not pagekinds.has_invoice_title(content):
+        motivos.append("nenhuma palavra de titulo de fatura no documento "
+                       "(invoice, fattura, fatura, faktura, facture, rechnung)")
+    tipos = {p["kind"] for p in page_kinds.get("pages") or []}
+    if tipos and pagekinds.INVOICE not in tipos and pagekinds.UNKNOWN not in tipos:
+        motivos.append("todas as paginas sao packing list / nota de entrega")
+    if not entries:
+        motivos.append("o modelo nao achou nenhuma invoice no documento")
+    if scored:
+        total = inventados = 0
+        for inv in invoices:
+            for fc in [inv.get("field_confidence"),
+                       *(li.get("field_confidence") for li in inv["line_items"])]:
+                for entry in (fc or {}).values():
+                    if entry.get("status") == "derived":
+                        continue
+                    total += 1
+                    if entry.get("status") in _INVENTADO:
+                        inventados += 1
+        if total >= NOT_INVOICE_MIN_FIELDS and inventados / total >= NOT_INVOICE_MISSING_FRACTION:
+            motivos.append("%d de %d campos devolvidos pelo modelo nao existem no "
+                           "texto do documento" % (inventados, total))
+    return motivos
 
 
 def _page_kinds_out(kinds: dict | None) -> list[dict]:
