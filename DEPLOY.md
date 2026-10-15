@@ -312,12 +312,18 @@ az postgres flexible-server microsoft-entra-admin list -g <rg> -s <servidor> --q
 
 **No webssh do fastapi**, no diretório que tem o `alembic.ini`:
 
+Sem marcador para preencher, de propósito: em 14/10 o `<servidor>` foi colado
+literal e o erro (`failed to resolve host '<servidor>...'`) custou uma volta. O
+host sai do `DATABASE_URL` do próprio app; o usuário é o grupo admin.
+
 ```bash
-export DATABASE_URL="postgresql+psycopg://<grupo-admin>@<servidor>.postgres.database.azure.com:5432/documentreader?sslmode=require"
+H=$(tr '\0' '\n' < /proc/1/environ | grep '^DATABASE_URL=' | sed 's/.*@//; s/[:/?].*//')
+echo "host=[$H]"       # tem de terminar em .postgres.database.azure.com
+export DATABASE_URL="postgresql+psycopg://CATIT-GenAICOE-DocumentReaderPOV-Developer@$H:5432/documentreader?sslmode=require"
 read -rs P1      # cola a 1a metade
 read -rs P2      # cola a 2a metade
 PGPASSWORD=$(printf '%s%s' "$P1" "$P2" | tr -d '\r\n '); export PGPASSWORD; unset P1 P2
-echo "${#PGPASSWORD} $(printf '%s' "$PGPASSWORD" | awk -F. '{print NF}')"   # 4515 e 3
+echo "${#PGPASSWORD} $(printf '%s' "$PGPASSWORD" | awk -F. '{print NF}')"   # ~4500 e 3
 alembic current        # tem de imprimir a revisao ANTERIOR, sem erro
 alembic upgrade head
 ```
