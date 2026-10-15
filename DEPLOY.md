@@ -307,7 +307,7 @@ Set-Clipboard -Value $p2
 O nome do grupo admin sai daqui (o subcomando antigo era `ad-admin`):
 
 ```powershell
-az postgres flexible-server microsoft-entra-admin list -g <rg> -s <servidor> --query "[0].principalName" -o tsv
+az postgres flexible-server microsoft-entra-admin list -g aicoe_aiagent_documentreader_pov -s aiagent-documentreader-pov-postgresql-server --query "[0].principalName" -o tsv
 ```
 
 **No webssh do fastapi**, no diretório que tem o `alembic.ini`:
