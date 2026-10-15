@@ -12,6 +12,59 @@ estado do PR.
 
 ---
 
+## 2026-10-14 — leva 13: "provavelmente não é invoice" e aba Performance · **pacote pronto**
+
+14 arquivos (1 novo), por ZIP em base64 + script autocontido. Branch sugerida:
+`feat/nao-invoice-e-performance`. **Sem migração.** Toca `shared/shared/`,
+então o script roda o `build.ps1`.
+
+- Marca de "provavelmente não é invoice" no structurer, com quatro motivos
+  (sem título de fatura no documento, só páginas de embarque, nenhuma invoice
+  achada, metade dos campos inexistentes no texto), e faixa vermelha na
+  revisão. Ver o item 7 do `BACKLOG.md`.
+- Página de documentos só com a lista e o upload; números na aba nova
+  `/performance`, com série diária no `/dashboard/metrics`.
+- Leva junto o que ficou da 12: checks imprimindo em UTF-8 e `DEPLOY.md` sem
+  marcador para preencher.
+
+**Base:** o "depois" da leva 12, com uma exceção — o `Dashboard.tsx` está em
+`81bdc7de0916`, a correção do `tsc -b` aplicada à mão na branch da 12. Prevista,
+não pedida à VM: o script confere blob a blob e para sem escrever num
+`DIVERGE`. Pressupõe a `main` da VM com a leva 12 merjada e atualizada.
+
+O script deixou de aceitar desvio de caminho por variável de ambiente (a
+`LEVA_REPO` da VM apontou a 12 para outro repo) e roda os checks com
+`PYTHONUTF8=1`. O teste usa uma cópia gerada com os caminhos trocados, que
+difere do script enviado em exatamente três linhas. Testado com Windows
+PowerShell 5.1, checkout CRLF, contra a árvore reconstruída dos blobs base:
+aplica limpo (com `build.ps1`), já aplicada, árvore suja, diverge sem
+escrever, `.b64` corrompido, e `LEVA_REPO` de outro projeto definida.
+
+| | |
+|---|---|
+| SHA-256 do `aplicar-leva13.b64` | `4f2921fc0e8dcdf183f5bf726a2a3289f2c330aae6609e00299765a1573c36fa` |
+| SHA-256 do `leva13-arquivos.b64` | `06c387ad4f03666052e3fbe51b6e5f7d284a34eabc2876a55c664637d83a2341` |
+| SHA-256 do `leva13-arquivos.zip` | `c114a81e35810de49fe47da001810fdb006a1b34b49e17ce0ec3bb2ce28d1ac4` |
+
+| arquivo | base | depois |
+|---|---|---|
+| `function/pipeline/pages.py` | `75e210e56e83` | `ec53e6d24446` |
+| `function/pipeline/structurer.py` | `164f70891c53` | `9aacfb1d1035` |
+| `shared/shared/metrics.py` | `d8d327ed7cc7` | `0821b4460d90` |
+| `backend/app/api/documents.py` | `c91aff3f2a72` | `4f1febe676c0` |
+| `backend/app/api/dashboard.py` | `d5e914aa9315` | `bfe65364fbbc` |
+| `frontend/src/types/document.ts` | `57e6007cc390` | `f6edbbce1e65` |
+| `frontend/src/pages/DocumentDetail.tsx` | `ccf2991439e3` | `e0e1f80c1313` |
+| `frontend/src/pages/Dashboard.tsx` | `81bdc7de0916` | `cc3ff1211aed` |
+| `frontend/src/pages/Performance.tsx` | `(novo)` | `b711f6a66a5c` |
+| `frontend/src/main.tsx` | `587c5b0f83bc` | `b2e2ffd5da53` |
+| `frontend/src/components/AppShell.tsx` | `14a1b788bb1d` | `c1527105eb61` |
+| `check_rules.py` | `26847bf04572` | `53aefcb0b521` |
+| `check_structurer.py` | `6346f0b40a54` | `20324759de46` |
+| `DEPLOY.md` | `c5db81d3944a` | `2638f9f29d08` |
+
+---
+
 ## 2026-10-14 — leva 12: packing list, métricas por período, Unit/Unit Weight, não-latino · **aplicada na VM, PR aberto**
 
 **Base conferida pela VM:** os 15 arquivos existentes na base prevista, os 3
@@ -911,6 +964,6 @@ do PR. Daí a regra de que arquivo de comunicação nunca mora no repo.
 
 ## Pendente de espelhamento
 
-Nada além da leva 12, no topo. Para conferir se algo escapou, compare os
+Nada além da leva 13, no topo. Para conferir se algo escapou, compare os
 diretórios que espelham (ver a tabela no `CLAUDE.md`) contra o último ponto
 espelhado — `git ls-tree -r HEAD` dos dois lados custa um comando.
