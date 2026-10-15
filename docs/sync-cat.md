@@ -12,6 +12,82 @@ estado do PR.
 
 ---
 
+## 2026-10-14 — leva 12: packing list, métricas por período, Unit/Unit Weight, não-latino · **pacote pronto, aguardando os blobs da VM**
+
+Tudo que foi feito depois da leva 11 (01/10), numa leva só: 18 caminhos (3
+novos), por ZIP em base64 + script autocontido. Branch sugerida:
+`feat/packing-list-e-metricas`. Traz a migração `0008`, então o pós-merge é o
+da leva 11: backend → `alembic upgrade 0007→0008` no webssh do fastapi com
+token do grupo admin → restart → function → frontend. Só colunas nulas, sem
+`GRANT` novo. E toca `shared/shared/`, então o script roda o `build.ps1`.
+
+- **Item 7 do BACKLOG** — classificação de página invoice × packing list,
+  determinística, antes do LLM (`function/pipeline/pages.py`, novo).
+  Calibrada no CIV: 17 páginas de fatura, 11 de embarque, nenhuma mista.
+  Sem migração: `page_kinds` vai no `raw_extraction` e sai no painel da
+  revisão. Documento sem nenhuma página de fatura vai para revisão.
+- **Item 9** — `GET /dashboard/metrics?days=` com tempo de processamento,
+  fração sem revisão, campos corrigidos, duplicatas (`shared/shared/metrics.py`,
+  novo). O worker grava `processed_at` também no erro. O valor total deixa de
+  somar cópia de duplicata, rejeitado e erro.
+- **De 08/10:** `Unit` / `Unit Weight` (migração `0008`, `db-setup-v2.sql` na
+  head 0008), texto fora do alfabeto latino ignorado e `filename*` no
+  download, rollback no `except` do `lookup_parts`, `--clean true` no deploy
+  do frontend.
+- **`DEPLOY.md`**, pendente desde 28/09 (`6f9e277`, `d5d5290`), mais a nota de
+  que o deploy de código é o workflow e que `USE_REAL_SERVICES=false` roda
+  mockado sem erro.
+- O `app-deploy.yml` vai nos dois lugares, como nas levas 7–9: o diretório de
+  infraestrutura e `.github/workflows/`, que é o que o Actions executa.
+
+**Base prevista, não conferida.** O pacote foi montado antes de a VM reportar
+os blobs: a base de cada arquivo é o nosso `7663480` (o "depois" da leva 11),
+`7ef20d49` para o `DEPLOY.md` (depois da leva 6) e `83e82635` para o
+`app-deploy.yml` (depois da leva 9). O script compara blob a blob e **para sem
+escrever** se algum divergir — então o risco de base errada é um `DIVERGE`
+falso, não um repo corrompido. Antes de mandar: `git fetch` sem `-q` na VM e
+um `git rev-parse HEAD:<caminho>` por arquivo, conferido contra a coluna
+"base" abaixo. Se algum não bater, o pacote é remontado.
+
+O script também exige em `Downloads` o `raw-civ-cap.json` da extração
+`3dce38ec-05bf-45a2-b72f-3f3e829ab4db` (a de 01/10, sem o bug do serial): a
+seção 13 do `check_structurer.py` trava a lista de páginas de embarque nela.
+
+Script testado com Windows PowerShell 5.1 e git do Windows, checkout CRLF
+(`core.autocrlf=true`), contra uma árvore reconstruída dos blobs base: aplica
+limpo (com `build.ps1`), já aplicada, árvore suja, diverge sem escrever,
+`.b64` corrompido. O passo 6 (venv da function, checks) foi rodado aqui no
+Linux, não no Windows: a máquina de desenvolvimento não tem a venv Windows.
+
+| | |
+|---|---|
+| SHA-256 do `aplicar-leva12.b64` | `13902fad45f0cfd5216a6987fd5d0c9483b9ca59c2cc4d90cffe76e92e26a947` |
+| SHA-256 do `leva12-arquivos.b64` | `cf4af0e535fea79d378273b0d6ebe3ae91e68f065e3fcd18847f00500a72f1c2` |
+| SHA-256 do `leva12-arquivos.zip` | `47234671f16f8dbbfef2e981bd65c5389e123e726f872a475c0fdb84352fb655` |
+
+| arquivo | base | depois |
+|---|---|---|
+| `function/pipeline/structurer.py` | `216579bbfd4d` | `164f70891c53` |
+| `function/pipeline/pages.py` | `(novo)` | `75e210e56e83` |
+| `function/doc_worker.py` | `b45dfffeb1c7` | `90e09e2e7fab` |
+| `shared/shared/models.py` | `16c0ef4f4a85` | `af5cd38f9e09` |
+| `shared/shared/metrics.py` | `(novo)` | `d8d327ed7cc7` |
+| `backend/app/api/documents.py` | `8e44f1069d0a` | `c91aff3f2a72` |
+| `backend/app/api/dashboard.py` | `1e7532cc783a` | `d5e914aa9315` |
+| `backend/alembic/versions/0008_unit_and_unit_weight.py` | `(novo)` | `c3aeb598674b` |
+| `db/db-setup-v2.sql` | `53612e403da9` | `f66a3bd291ec` |
+| `frontend/src/pages/DocumentDetail.tsx` | `1b5167c9e9dc` | `ccf2991439e3` |
+| `frontend/src/pages/Dashboard.tsx` | `42c1f59f4707` | `c9f76986be2a` |
+| `frontend/src/api/documents.ts` | `3989bc8f073f` | `40f6473a8c0e` |
+| `frontend/src/types/document.ts` | `4ce26ef4b632` | `57e6007cc390` |
+| `check_rules.py` | `e488e623623d` | `26847bf04572` |
+| `check_structurer.py` | `64eb9a5b511a` | `6346f0b40a54` |
+| `aiagent-documentreader-infrastructure-azure/workflows/app-deploy.yml` | `83e8263501fc` | `ecd587d47464` |
+| `DEPLOY.md` | `7ef20d49e42f` | `c5db81d3944a` |
+| `.github/workflows/app-deploy.yml` | `83e8263501fc` | `ecd587d47464` |
+
+---
+
 ## 2026-10-01 — leva 11: confiança por campo e página por fornecedor · **merjado**, migração 0007 aplicada
 
 **Merjada em 01/10; `0006 -> 0007` aplicada em produção** pelo webssh do
@@ -819,9 +895,6 @@ do PR. Daí a regra de que arquivo de comunicação nunca mora no repo.
 
 ## Pendente de espelhamento
 
-A leva `feat/app-cicd-and-appservice-config`, no topo: o pacote está pronto e
-conferido, falta transportar para a VM, copiar os workflows para
-`.github/workflows/` e abrir o PR.
-
-Para conferir se algo escapou, compare os diretórios que espelham (ver a tabela
-no `CLAUDE.md`) contra o último ponto espelhado.
+Nada além da leva 12, no topo. Para conferir se algo escapou, compare os
+diretórios que espelham (ver a tabela no `CLAUDE.md`) contra o último ponto
+espelhado — `git ls-tree -r HEAD` dos dois lados custa um comando.
