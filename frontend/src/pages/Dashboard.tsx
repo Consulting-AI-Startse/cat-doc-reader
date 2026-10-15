@@ -8,8 +8,11 @@ import { NewDocumentModal } from "../components/NewDocumentModal";
 import { isPending } from "../lib/status";
 import { EMPTY, fmtDateTime } from "../lib/format";
 
+// So os campos numericos: Metrics tambem tem Duration, que nao e ReactNode.
+type NumericMetric = { [K in keyof Metrics]: Metrics[K] extends number ? K : never }[keyof Metrics];
+
 interface CardDef {
-  key: keyof Metrics;
+  key: NumericMetric;
   label: string;
   accent: string;
   kind?: "money";
