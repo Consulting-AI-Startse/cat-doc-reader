@@ -10,7 +10,9 @@ export const listDocuments = () => api<DocumentListItem[]>("/documents");
 
 export const getDocument = (id: string) => api<DocumentDetail>(`/documents/${id}`);
 
-export const getMetrics = () => api<Metrics>("/dashboard/metrics");
+/** `days` 0 = tudo. A janela conta pela data de upload do documento. */
+export const getMetrics = (days: number) =>
+  api<Metrics>(`/dashboard/metrics?days=${days}`);
 
 export const updateDocument = (id: string, body: DocumentUpdate) =>
   api<DocumentDetail>(`/documents/${id}`, {

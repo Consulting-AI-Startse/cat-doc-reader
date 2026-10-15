@@ -141,14 +141,38 @@ export interface DocumentListItem {
   total: string | number | null;
 }
 
+/** Mediana e p90 em segundos; `n` diz quantos documentos sustentam o número. */
+export interface Duration {
+  median: number | null;
+  p90: number | null;
+  n: number;
+}
+
 export interface Metrics {
+  days: number;
   documentos: number;
   invoices: number;
   nao_processados: number;
   aguardando_revisao: number;
   aprovados: number;
+  rejeitados: number;
   erros: number;
+  duplicatas: number;
+  /** Sem cópia de duplicata, rejeitado ou erro. */
   valor_total_extraido: number;
+  /** extracted + needs_review + approved + rejected. */
+  terminados: number;
+  /** Terminou sem nunca passar por needs_review, e não foi rejeitado. */
+  auto_extracted: number;
+  auto_rate: number | null;
+  review_rate: number | null;
+  /** Do evento `processing` até processed_at: OCR + LLM + gravação. */
+  processing_seconds: Duration;
+  /** Do upload até processed_at: o que o usuário espera. */
+  turnaround_seconds: Duration;
+  fields_scored: number;
+  fields_corrected: number;
+  fields_corrected_rate: number | null;
 }
 // --- Payload do PATCH (revisão humana): a mesma forma que o backend espera. ---
 

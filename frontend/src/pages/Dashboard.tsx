@@ -21,11 +21,73 @@ const CARDS: CardDef[] = [
   { key: "nao_processados", label: "Não processados", accent: "text-neutral-500" },
   { key: "aguardando_revisao", label: "Aguardando revisão", accent: "text-blue-600" },
   { key: "aprovados", label: "Aprovados", accent: "text-emerald-600" },
+  { key: "erros", label: "Erros", accent: "text-red-600" },
   { key: "valor_total_extraido", label: "Valor total extraído", accent: "text-neutral-900", kind: "money" },
+];
+
+// Mesmo seletor da pagina de fornecedores; a janela conta pela data de upload.
+const PERIODOS = [
+  { dias: 7, rotulo: "7 dias" },
+  { dias: 30, rotulo: "30 dias" },
+  { dias: 90, rotulo: "90 dias" },
+  { dias: 0, rotulo: "Tudo" },
 ];
 
 function fmtNumber(v: number): string {
   return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(v);
+}
+
+function fmtSeconds(v: number | null): string {
+  if (v == null) return EMPTY;
+  if (v < 90) return `${Math.round(v)} s`;
+  if (v < 5400) return `${(v / 60).toFixed(1)} min`;
+  return `${(v / 3600).toFixed(1)} h`;
+}
+
+function fmtPct(v: number | null): string {
+  return v == null ? EMPTY : `${Math.round(v * 100)}%`;
+}
+
+/** Performance do agente no periodo: tempo, autonomia, acerto. */
+function AgentCards({ m }: { m: Metrics | undefined }) {
+  const cards = [
+    {
+      label: "Tempo de processamento",
+      value: m ? fmtSeconds(m.processing_seconds.median) : EMPTY,
+      hint: m ? `p90 ${fmtSeconds(m.processing_seconds.p90)} · ${m.processing_seconds.n} doc.` : "",
+    },
+    {
+      label: "Upload até resultado",
+      value: m ? fmtSeconds(m.turnaround_seconds.median) : EMPTY,
+      hint: m ? `p90 ${fmtSeconds(m.turnaround_seconds.p90)} · ${m.turnaround_seconds.n} doc.` : "",
+    },
+    {
+      label: "Extraídos sem revisão",
+      value: m ? fmtPct(m.auto_rate) : EMPTY,
+      hint: m ? `${m.auto_extracted} de ${m.terminados} terminados` : "",
+    },
+    {
+      label: "Campos corrigidos na revisão",
+      value: m ? fmtPct(m.fields_corrected_rate) : EMPTY,
+      hint: m ? `${m.fields_corrected} de ${m.fields_scored} pontuados` : "",
+    },
+    {
+      label: "Duplicatas sinalizadas",
+      value: m ? String(m.duplicatas) : EMPTY,
+      hint: m ? `${m.rejeitados} rejeitado(s)` : "",
+    },
+  ];
+  return (
+    <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+      {cards.map((c) => (
+        <div key={c.label} className="rounded-2xl border border-neutral-200 bg-white p-4">
+          <p className="text-xs font-medium text-neutral-500">{c.label}</p>
+          <p className="mt-2 text-2xl font-semibold tabular text-neutral-900">{c.value}</p>
+          <p className="mt-1 text-xs text-neutral-400">{c.hint}</p>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function docTotal(item: DocumentListItem): string {
@@ -38,7 +100,12 @@ export function Dashboard() {
   const [modalOpen, setModalOpen] = useState(false);
   const navigate = useNavigate();
 
-  const metrics = useQuery({ queryKey: ["metrics"], queryFn: getMetrics, refetchInterval: 5000 });
+  const [dias, setDias] = useState(30);
+  const metrics = useQuery({
+    queryKey: ["metrics", dias],
+    queryFn: () => getMetrics(dias),
+    refetchInterval: 5000,
+  });
   const docs = useQuery({
     queryKey: ["documents"],
     queryFn: listDocuments,
@@ -60,15 +127,30 @@ export function Dashboard() {
             Documentos recebidos e o processamento dos invoices.
           </p>
         </div>
-        <button
-          onClick={() => setModalOpen(true)}
-          className="cursor-pointer rounded-lg bg-[#ffcd11] px-4 py-2 text-sm font-semibold text-neutral-900 shadow-sm transition-colors hover:bg-[#f0c000]"
-        >
-          + Novo documento
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1 rounded-lg border border-neutral-200 bg-white p-0.5">
+            {PERIODOS.map((p) => (
+              <button
+                key={p.dias}
+                onClick={() => setDias(p.dias)}
+                className={`cursor-pointer rounded-md px-3 py-1 text-sm font-medium ${
+                  dias === p.dias ? "bg-neutral-900 text-white" : "text-neutral-600 hover:bg-neutral-50"
+                }`}
+              >
+                {p.rotulo}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setModalOpen(true)}
+            className="cursor-pointer rounded-lg bg-[#ffcd11] px-4 py-2 text-sm font-semibold text-neutral-900 shadow-sm transition-colors hover:bg-[#f0c000]"
+          >
+            + Novo documento
+          </button>
+        </div>
       </div>
 
-      <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+      <div className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-7">
         {CARDS.map((c) => {
           const value = m ? m[c.key] : null;
           return (
@@ -81,6 +163,8 @@ export function Dashboard() {
           );
         })}
       </div>
+
+      <AgentCards m={m} />
 
       <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
         <div className="border-b border-neutral-200 px-5 py-3">

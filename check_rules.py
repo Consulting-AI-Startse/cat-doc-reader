@@ -420,6 +420,74 @@ check("contagem divergente e nota, nao problema",
 check("sem classificacao: nada muda",
       _normalise({"invoices": []}, None, [], None, "", set())["page_kinds"], [])
 
+
+# --- metricas de processamento por periodo (dashboard) ------------------------
+from datetime import datetime, timedelta, timezone
+from shared.metrics import processing_report, _percentile
+
+print("=== _percentile: nearest-rank, sem numpy ===")
+check("mediana de 4", _percentile([4, 1, 3, 2], 0.5), 2.0)
+check("p90 de 10", _percentile(list(range(1, 11)), 0.9), 9.0)
+check("um valor so", _percentile([7.0], 0.9), 7.0)
+check("vazio", _percentile([], 0.5), None)
+
+T0 = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
+
+
+def doc(status, started=10, done=70, reviewed=False, invoices=None):
+    return {"status": status, "created_at": T0,
+            "started_at": T0 + timedelta(seconds=started) if started is not None else None,
+            "processed_at": T0 + timedelta(seconds=done) if done is not None else None,
+            "reviewed": reviewed, "invoices": invoices or []}
+
+
+fc_ok = {"part_number": {"score": 0.99, "status": "ok"}}
+fc_corr = {"part_number": {"score": 0.6, "status": "corrected", "was": "low"}}
+inv = lambda amount, dup=False, fc=fc_ok: {"duplicate": dup, "amount": amount,
+                                           "header_fc": None, "lines_fc": [fc]}
+
+print("=== processing_report: contagens, taxas e tempos ===")
+r = processing_report([
+    doc("extracted", invoices=[inv(100.0)]),                       # auto
+    doc("approved", invoices=[inv(50.0, fc=fc_corr)]),             # auto (aprovado direto)
+    doc("approved", reviewed=True, invoices=[inv(30.0)]),          # passou por revisao
+    doc("needs_review", done=130, invoices=[inv(20.0), inv(20.0, dup=True)]),
+    doc("rejected", invoices=[inv(999.0)]),                        # leitura descartada
+    doc("error", started=10, done=40),                             # erro com fim gravado
+    doc("error", started=10, done=None),                           # erro antigo, sem fim
+    doc("processing", done=None),
+])
+check("documentos", r["documentos"], 8)
+check("invoices (com a copia)", r["invoices"], 6)
+check("duplicatas", r["duplicatas"], 1)
+check("nao processados", r["nao_processados"], 1)
+check("aguardando revisao", r["aguardando_revisao"], 2)
+check("aprovados / rejeitados / erros", (r["aprovados"], r["rejeitados"], r["erros"]), (2, 1, 2))
+# Fora: a copia (20), o rejeitado (999) e os erros.
+check("valor sem copia nem rejeitado", r["valor_total_extraido"], 200.0)
+# Terminados: 5 (o erro e o processing nao). Auto: extracted e approved direto;
+# o rejeitado sem revisao NAO e sucesso do agente -- a leitura nao prestou.
+check("auto: 2 de 5 terminados", (r["terminados"], r["auto_extracted"], r["auto_rate"], r["review_rate"]),
+      (5, 2, 0.4, 0.6))
+# 60 s x4 (extracted, approved, approved, rejected), 120 (needs_review), 30 (erro).
+check("processamento: n conta so quem terminou", r["processing_seconds"]["n"], 6)
+check("mediana do processamento", r["processing_seconds"]["median"], 60.0)
+check("p90 do processamento", r["processing_seconds"]["p90"], 120.0)
+check("upload ate resultado", (r["turnaround_seconds"]["median"], r["turnaround_seconds"]["n"]), (70.0, 6))
+# Pontuados: 4 invoices que contam (100, 50, 30, 20); corrigido: 1.
+check("campos corrigidos / pontuados", (r["fields_corrected"], r["fields_scored"]), (1, 4))
+check("taxa de correcao", r["fields_corrected_rate"], 0.25)
+
+print("=== processing_report: bordas ===")
+vazio = processing_report([])
+check("vazio: zeros", (vazio["documentos"], vazio["valor_total_extraido"]), (0, 0.0))
+check("vazio: taxas None", (vazio["auto_rate"], vazio["fields_corrected_rate"]), (None, None))
+check("vazio: duracao None", (vazio["processing_seconds"]["median"], vazio["processing_seconds"]["n"]), (None, 0))
+# processed_at antes do evento: relogio, nao duracao.
+atras = processing_report([doc("extracted", started=100, done=50)])
+check("delta negativo fica fora", atras["processing_seconds"]["n"], 0)
+check("mas o turnaround conta", atras["turnaround_seconds"]["n"], 1)
+
 print()
 if falhas:
     print(f"{len(falhas)} FALHA(S): {falhas}")

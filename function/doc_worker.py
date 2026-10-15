@@ -237,6 +237,11 @@ def process_document(
     except Exception as exc:
         doc.status = DocumentStatus.error
         doc.error_message = str(exc)
+        # "Terminou de processar", com ou sem sucesso: e o fim que a metrica
+        # de tempo usa. O created_at do evento 'error' nao serve de fim: o
+        # now() do Postgres e o inicio da transacao, que abriu logo depois do
+        # evento 'processing' -- a diferenca daria ~0 em todo documento.
+        doc.processed_at = datetime.now(timezone.utc)
         db.add(
             DocumentEvent(
                 document_id=doc.id,
