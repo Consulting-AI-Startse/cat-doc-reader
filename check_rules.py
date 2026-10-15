@@ -3,6 +3,11 @@
 Rode de dentro de function\\:  & $PY ..\\check_rules.py
 """
 import sys, os
+# O console do Windows com saida em pipe usa cp1252, e o teste imprime o
+# fornecedor turco (DOKTAS com cedilha): o print estourava UnicodeEncodeError
+# na VM da CAT, com a logica certa. O CI e Linux e nunca viu isso.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "function"))
 sys.path.insert(0, os.getcwd())
 

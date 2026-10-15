@@ -66,6 +66,19 @@ Para cada leva de mudancas que precisa ir para a VM, produza **quatro coisas**:
      vira `true` antes do `Expand-Archive` e a diferenca entre "o repo nao foi
      tocado" e "pode estar pela metade, desfaca assim".
 
+   Mais duas, da leva 12:
+
+   - **Nao aceite desvio de caminho por variavel de ambiente.** O script da
+     leva 12 lia `LEVA_REPO` para poder ser testado aqui, e a VM ja tinha essa
+     variavel de outro projeto: ele apontou para `AICOE_Invoice_Validation_POV`.
+     Parou no `DIVERGE`, sem escrever, mas por sorte. Para testar, gere uma
+     copia do script com o caminho trocado; o que vai por e-mail tem caminho
+     fixo.
+   - **Rode os checks com `PYTHONUTF8=1`.** Saida de Python em pipe no Windows
+     usa `cp1252`; um `print` com caractere turco estourou `UnicodeEncodeError`
+     com o teste certo. Os checks se reconfiguram desde entao, mas um script
+     novo pode nao.
+
    **Teste o script antes de mandar.** Reconstrua a arvore da CAT a partir dos
    blobs que ela reportou (`git cat-file -p <blob>` monta cada arquivo), rode o
    script contra esse repo de teste e confira os tres caminhos: aplica limpo,

@@ -4,6 +4,11 @@ Precisa de raw-civ-cap.json em Downloads (a ultima extracao do CIV).
 Rode da raiz do repo:  & .\function\.venv\Scripts\python.exe .\check_structurer.py
 """
 import json, os, re, sys
+# O console do Windows com saida em pipe usa cp1252, e o teste imprime o
+# fornecedor turco (DOKTAS com cedilha): o print estourava UnicodeEncodeError
+# na VM da CAT, com a logica certa. O CI e Linux e nunca viu isso.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "function"))
 from pipeline.structurer import (_ENGINE_RULES, _normalise, _snum, _SYSTEM_PROMPT,
