@@ -92,6 +92,18 @@ export interface DiscardedLine {
   reason: string | null;
 }
 
+/** Tipo de cada página, decidido antes do LLM pelo layout (não pelo modelo).
+ *  `packing_list` cobre packing list, nota de entrega e loadlist: página de
+ *  onde não sai linha de fatura. */
+export type PageKind = "invoice" | "packing_list" | "mixed" | "unknown";
+
+export interface PageKindEntry {
+  page_number: number;
+  kind: PageKind;
+  /** O que decidiu, para o revisor conferir ("PACKING LIST x3"). */
+  evidence: string[];
+}
+
 export interface DocumentEvent {
   event_type: string;
   actor: string | null;
@@ -113,6 +125,8 @@ export interface DocumentDetail {
   /** Registro de cálculo (rateio, linha descartada). Não pede revisão. */
   notes: string[];
   discarded_lines: DiscardedLine[];
+  /** Vazio em documento anterior à classificação de páginas. */
+  page_kinds: PageKindEntry[];
   invoices: Invoice[];
   events: DocumentEvent[];
 }

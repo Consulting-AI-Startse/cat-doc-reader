@@ -103,8 +103,8 @@ def _serialize_invoice(inv: Invoice) -> dict:
     }
 
 
-def _extract_notes(doc: Document) -> tuple[list[str], list[str], list[dict]]:
-    """Notas de validacao e linhas descartadas, tiradas do raw_extraction.
+def _extract_notes(doc: Document) -> tuple[list[str], list[str], list[dict], list[dict]]:
+    """Notas de validacao, linhas descartadas e tipo de pagina, do raw_extraction.
 
     Nao ficam em tabela propria: sao saida do structurer, gravadas junto com a
     extracao. Mas precisam CHEGAR a tela -- ate aqui elas so existiam no
@@ -132,11 +132,22 @@ def _extract_notes(doc: Document) -> tuple[list[str], list[str], list[dict]]:
                 "amount": linha.get("amount"),
                 "reason": linha.get("discard_reason"),
             })
-    return problemas, notas, descartadas
+    # Pagina de packing list / nota de entrega ignorada para itens. Documento
+    # anterior a esta classificacao nao tem a chave: lista vazia, tela sem o
+    # bloco.
+    paginas = []
+    for p in estruturado.get("page_kinds") or []:
+        if isinstance(p, dict) and p.get("kind"):
+            paginas.append({
+                "page_number": p.get("page_number"),
+                "kind": p.get("kind"),
+                "evidence": [str(e) for e in (p.get("evidence") or [])],
+            })
+    return problemas, notas, descartadas, paginas
 
 
 def _serialize_document(doc: Document) -> dict:
-    problemas, notas, descartadas = _extract_notes(doc)
+    problemas, notas, descartadas, paginas = _extract_notes(doc)
     return {
         "id": str(doc.id),
         "status": doc.status.value,
@@ -149,6 +160,7 @@ def _serialize_document(doc: Document) -> dict:
         "validation": problemas,
         "notes": notas,
         "discarded_lines": descartadas,
+        "page_kinds": paginas,
         "invoices": [_serialize_invoice(i) for i in doc.invoices],
         "events": [
             {

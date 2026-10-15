@@ -416,6 +416,31 @@ check("e o documento vai para revisao", r["confidence"] < 0.85, True)
 check("os 52 campos do prototipo", sum(len(i["field_confidence"] or {}) +
       sum(len(l["field_confidence"] or {}) for l in i["line_items"]) for i in r["invoices"]), 52)
 
+
+print("=== 13. paginas do CIV: embarque e fatura, decididos antes do modelo ===")
+# Medido em 14/10 sobre as 35 paginas: cada fornecedor traz a fatura seguida
+# da nota de entrega (DDT) ou do packing list; a Bosch traz um loadlist. Nao
+# ha pagina mista. Se a lista mudar, ou a regra mudou ou o CIV mudou -- os
+# dois pedem olhar.
+from pipeline.pages import classify_pages
+from pipeline.structurer import _PACKING_RULES, _USER_TEMPLATE, _page_notes
+kinds = classify_pages(content, len(raw["pages"]))
+check("35 paginas, como o OCR", (kinds["page_count"], kinds["page_count_mismatch"]), (35, False))
+check("paginas de embarque", kinds["packing_list_pages"], [2, 3, 6, 9, 10, 13, 18, 19, 24, 27, 35])
+check("nenhuma mista", kinds["mixed_pages"], [])
+check("17 paginas de fatura", len(kinds["invoice_pages"]), 17)
+# A fatura italiana cita a DDT e imprime peso: continua fatura.
+check("TECNORD pag. 7 e fatura", kinds["pages"][6]["kind"], "invoice")
+r = _normalise(civ, None, [], None, content, set(), palavras, kinds)
+check("nenhuma linha gravada vem so do embarque",
+      [v for v in r["validation"] if "so aparece em pagina" in v], [])
+check("a nota lista as paginas", any("2, 3, 6, 9, 10" in n for n in r["notes"]), True)
+low = re.sub(r"\s+", " ", _PACKING_RULES.lower())
+check("regra 12 proibe item de pagina de embarque", "never create an invoice or a line item" in low, True)
+check("mas deixa usar o peso", "unit_weight" in low, True)
+check("o bloco de paginas entra no user message", "{page_notes}" in _USER_TEMPLATE, True)
+check("e fica vazio sem embarque", _page_notes(classify_pages("UNIT PRICE 10")), "")
+
 print()
 if falhas:
     print(f"{len(falhas)} FALHA(S): {falhas}")

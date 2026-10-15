@@ -333,6 +333,93 @@ check("dois registros", len(regs), 2)
 check("cada um com o peso de UM motor", [x["unit_weight"] for x in regs], ["850.00000"] * 2)
 check("unidade emitida", regs[0]["unit"], "EA")
 
+
+# --- classificacao de paginas: invoice x packing list -------------------------
+from pipeline.pages import classify_pages, page_spans, only_in_pages
+
+PB = "<!-- PageBreak -->"
+FATURA_1 = "INVOICE No. 9028078388\nPart Number Qty Unit Price Amount\n463-8344 2 10.00 USD 20.00\n"
+FATURA_2 = "Page 2\n5P-1465 1 5.00 5.00\nTOTAL AMOUNT USD 25.00\n"
+PACKING = "PACKING LIST\nInvoice No. 9028078388\nPart Number Qty Net Weight Gross Weight\n463-8344 2 1.5 KG 2.0 KG\n674-8657 4 CARTON\n"
+DOC = FATURA_1 + PB + FATURA_2 + PB + PACKING
+
+print("=== page_spans: os marcadores viram paginas, e o content nao e reescrito ===")
+spans = page_spans(DOC)
+check("tres paginas", [s["page_number"] for s in spans], [1, 2, 3])
+check("cobrem o content inteiro", (spans[0]["start"], spans[-1]["end"]), (0, len(DOC)))
+check("sem sobreposicao", all(a["end"] == b["start"] for a, b in zip(spans, spans[1:])), True)
+check("pagina 3 e a de packing", "PACKING LIST" in DOC[spans[2]["start"]:spans[2]["end"]], True)
+check("sem marcador: uma pagina", len(page_spans("so texto")), 1)
+
+print("=== classify_pages: titulo decide, preco desmente, moeda solta nao ===")
+k = classify_pages(DOC, 3)
+check("packing list na pagina 3", k["packing_list_pages"], [3])
+check("fatura nas paginas 1 e 2", k["invoice_pages"], [1, 2])
+check("nenhuma mista", k["mixed_pages"], [])
+check("contagem bate com o OCR", k["page_count_mismatch"], False)
+check("divergencia de contagem e sinalizada", classify_pages(DOC, 5)["page_count_mismatch"], True)
+# 'Invoice No.' no packing list nao o torna fatura: INVOICE pesa zero.
+check("'Invoice No.' nao vira fatura", classify_pages(PACKING)["pages"][0]["kind"], "packing_list")
+# O rodape legal da Dana imprime 'Cap. Soc. € 60.000.000' na pagina do packing list.
+check("moeda no rodape nao desmente o titulo",
+      classify_pages("PACKING LIST\nPALLETS 2\nCap. Soc. € 60.000,00")["pages"][0]["kind"], "packing_list")
+check("titulo E rotulo de preco: mista",
+      classify_pages("PACKING LIST\n463-8344 UNIT PRICE 10.00")["pages"][0]["kind"], "mixed")
+# Fatura italiana imprime peso na propria fatura (TECNORD: 'Netto' 5x) e cita a
+# DDT como referencia. Nenhum dos dois a torna packing list.
+check("peso na fatura continua fatura",
+      classify_pages("Prezzo 10,00 Netto 2,0 Netto 3,0 DDT n. 2603712 Importo 20,00")["pages"][0]["kind"],
+      "invoice")
+check("nota de entrega sem preco e embarque",
+      classify_pages("DOCUMENTO DI TRASPORTO n. 2603712\n463-8344 2 pz")["pages"][0]["kind"], "packing_list")
+check("loadlist tambem", classify_pages("Loadlist 409539 Dimensions 120X80")["pages"][0]["kind"], "packing_list")
+check("duas marcas de peso sem titulo: embarque",
+      classify_pages("Net Weight 167,00 Gross Weight 180,00")["pages"][0]["kind"], "packing_list")
+check("uma marca so: nada", classify_pages("GROSS WEIGHT 1.200")["pages"][0]["kind"], "unknown")
+check("pagina vazia: nada", classify_pages("")["pages"][0]["kind"], "unknown")
+
+print("=== only_in_pages: so acusa o que existe exclusivamente no packing list ===")
+pags = k["pages"]
+check("674-8657 so na pagina 3", only_in_pages("674-8657", DOC, pags), True)
+check("463-8344 esta na 1 e na 3", only_in_pages("463-8344", DOC, pags), False)
+check("ausente nao acusa", only_in_pages("999-9999", DOC, pags), False)
+check("vazio nao acusa", only_in_pages(None, DOC, pags), False)
+
+print("=== _normalise: nota para o revisor, problema so quando pede humano ===")
+linhas = [{"part_number": "463-8344", "quantity": "2", "unit_price": "10.00", "amount": "20.00"},
+          {"part_number": "5P-1465", "quantity": "1", "unit_price": "5.00", "amount": "5.00"}]
+ok = _normalise({"invoices": [{"invoice_number": "9028078388", "total": "25.00",
+                               "line_items": linhas}]}, None, [], None, DOC, set(), None, k)
+check("packing list vira nota", any("packing list" in n for n in ok["notes"]), True)
+check("e nao problema", [v for v in ok["validation"] if "packing" in v], [])
+check("page_kinds sai no resultado", [p["kind"] for p in ok["page_kinds"]],
+      ["invoice", "invoice", "packing_list"])
+check("documento limpo: nenhum problema", ok["validation"], [])
+# O modelo desobedeceu a regra 12 e tirou uma linha do packing list.
+furada = _normalise({"invoices": [{"invoice_number": "9028078388", "total": "25.00",
+                                   "line_items": linhas + [
+    {"part_number": "674-8657", "quantity": "4", "unit_price": "1.00", "amount": "4.00"}]}]},
+                    None, [], None, DOC, set(), None, k)
+check("linha do packing list e acusada",
+      [v for v in furada["validation"] if "674-8657" in v and "packing" in v] != [], True)
+check("mas nao e descartada", len(furada["invoices"][0]["line_items"]), 3)
+# E a rede de seguranca: a linha a mais estoura o total impresso.
+check("e a aritmetica confirma", any("nao fecha" in v for v in furada["validation"]), True)
+mista = _normalise({"invoices": []}, None, [], None, "", set(), None,
+                   classify_pages("PACKING LIST\n463-8344 UNIT PRICE 10.00"))
+check("pagina mista pede revisao", any("titulo de packing list E preco" in v for v in mista["validation"]), True)
+so_packing = _normalise({"invoices": []}, None, [], None, "", set(), None, classify_pages(PACKING))
+check("documento sem fatura e acusado",
+      any("nenhuma pagina de fatura" in v for v in so_packing["validation"]), True)
+check("contagem divergente e nota, nao problema",
+      (any("classificacao de paginas contou" in n for n in
+           _normalise({"invoices": []}, None, [], None, DOC, set(), None, classify_pages(DOC, 5))["notes"]),
+       any("contou" in v for v in
+           _normalise({"invoices": []}, None, [], None, DOC, set(), None, classify_pages(DOC, 5))["validation"])),
+      (True, False))
+check("sem classificacao: nada muda",
+      _normalise({"invoices": []}, None, [], None, "", set())["page_kinds"], [])
+
 print()
 if falhas:
     print(f"{len(falhas)} FALHA(S): {falhas}")

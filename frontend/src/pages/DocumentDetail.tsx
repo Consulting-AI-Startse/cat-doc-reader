@@ -164,6 +164,7 @@ export function DocumentDetail() {
   });
 
   const editable = data ? canReview(data.status) : false;
+  const shippingPages = (data?.page_kinds ?? []).filter((p) => p.kind === "packing_list");
   const [form, setForm] = useState<InvoiceForm[] | null>(null);
   const [baseline, setBaseline] = useState("");
 
@@ -328,7 +329,7 @@ export function DocumentDetail() {
               </div>
             )}
 
-            {(data.notes.length > 0 || data.discarded_lines.length > 0) && (
+            {(data.notes.length > 0 || data.discarded_lines.length > 0 || shippingPages.length > 0) && (
               <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4">
                 {/* Cinza, nao ambar: isto nao e defeito, e o registro de como o
                     numero foi montado. Na mesma cor dos problemas, o revisor
@@ -359,6 +360,19 @@ export function DocumentDetail() {
                       </tbody>
                     </table>
                   </div>
+                )}
+
+                {/* Decidido pelo layout, antes do modelo: o revisor ve de quais
+                    paginas NAO saiu item, e a evidencia que decidiu. */}
+                {shippingPages.length > 0 && (
+                  <p className="mt-3 text-xs text-neutral-600">
+                    <span className="font-medium">
+                      {shippingPages.length === 1 ? "Página" : "Páginas"}{" "}
+                      {shippingPages.map((p) => p.page_number).join(", ")}:
+                    </span>{" "}
+                    packing list / nota de entrega, ignorada(s) para itens
+                    {" "}({[...new Set(shippingPages.flatMap((p) => p.evidence.slice(0, 1)))].join(", ")}).
+                  </p>
                 )}
 
                 {data.notes.length > 0 && (

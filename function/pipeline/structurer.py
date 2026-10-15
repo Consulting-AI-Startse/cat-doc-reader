@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from pipeline import confidence as fieldconf
+from pipeline import pages as pagekinds
 
 logger = logging.getLogger("structurer")
 
@@ -164,6 +165,32 @@ _ENGINE_RULES = """\
    the full quantity; this code expands it.
 """
 
+# Acrescentado SO quando a classificacao de paginas (pipeline/pages.py) achou
+# packing list, nota de entrega ou loadlist. Um terco do plano de aceitacao e
+# "Invoice + Packing List", e ate aqui o documento inteiro ia para o modelo
+# com a esperanca de que ele ignorasse as paginas de embarque sozinho. A
+# decisao de QUAIS paginas e nossa e deterministica; aqui so se diz ao modelo
+# o que fazer com elas.
+_PACKING_RULES = """\
+
+12. SHIPPING PAGES. The user message lists pages that are a packing list,
+   delivery note or load list -- not an invoice. They repeat part numbers and
+   quantities for shipping, not for billing. Never create an invoice or a
+   line item from those pages, and never let them change the quantity,
+   unit_price or amount of a line read from an invoice page. Use them ONLY
+   to fill unit_weight / line_weight / weight_uom / packaging (rule 10) of a
+   line that already exists on an invoice page. A part number printed only
+   on shipping pages is not a line item.
+"""
+
+_PAGE_NOTES_TEMPLATE = """\
+## Page classification (deterministic, from the page layout -- not a guess)
+Page boundaries are the <!-- PageBreak --> markers; page 1 is the text before
+the first marker. {packing} are SHIPPING pages (packing list / delivery note /
+load list): see rule 12. {invoice} are invoice pages.
+
+"""
+
 _USER_TEMPLATE = """\
 Below is a Document Intelligence pre-pass of a supplier invoice document, followed by
 the document's full text.
@@ -180,9 +207,25 @@ the text says it applies to both.
 ## Pre-pass JSON (unverified)
 {prepass}
 
-## Full document text (authoritative)
+{page_notes}## Full document text (authoritative)
 {content}
 """
+
+
+def _fmt_pages(numbers: list[int]) -> str:
+    if not numbers:
+        return "none"
+    return ("Page %d" if len(numbers) == 1 else "Pages %s") % (
+        numbers[0] if len(numbers) == 1 else ", ".join(str(n) for n in numbers))
+
+
+def _page_notes(kinds: dict | None) -> str:
+    """Bloco do user message; vazio quando nao ha pagina de embarque."""
+    if not kinds or not kinds.get("packing_list_pages"):
+        return ""
+    return _PAGE_NOTES_TEMPLATE.format(
+        packing=_fmt_pages(kinds["packing_list_pages"]),
+        invoice=_fmt_pages(kinds["invoice_pages"]))
 
 
 def _s(v) -> str | None:
@@ -566,6 +609,9 @@ class AzureOpenAIStructurer(LLMStructurer):
         """
         exigem_serial = exigem_serial or set()
         content = extraction.get("content") or ""
+        # Quais paginas sao packing list e decisao nossa, antes do modelo --
+        # pelo mesmo motivo do serial acima.
+        page_kinds = pagekinds.classify_pages(content, len(extraction.get("pages") or []))
 
         prepass = {"invoices": []}
         for inv in extraction.get("invoices") or []:
@@ -576,14 +622,19 @@ class AzureOpenAIStructurer(LLMStructurer):
 
         user = _USER_TEMPLATE.format(
             prepass=json.dumps(prepass, ensure_ascii=False, default=str),
+            page_notes=_page_notes(page_kinds),
             content=content,
         )
+        system = _SYSTEM_PROMPT
+        if exigem_serial:
+            system += _ENGINE_RULES
+        if page_kinds["packing_list_pages"]:
+            system += _PACKING_RULES
 
         response = self._client.chat.completions.create(
             model=self._deployment,
             messages=[
-                {"role": "system",
-                 "content": _SYSTEM_PROMPT + (_ENGINE_RULES if exigem_serial else "")},
+                {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
             response_format={"type": "json_object"},
@@ -594,7 +645,7 @@ class AzureOpenAIStructurer(LLMStructurer):
         payload = json.loads(response.choices[0].message.content or "{}")
         numbers, note = _cat_invoice_numbers(content)
         return _normalise(payload, extraction.get("confidence"), numbers, note,
-                          content, exigem_serial, extraction.get("words"))
+                          content, exigem_serial, extraction.get("words"), page_kinds)
 
 
 def _expand_serials(tag: str, li: dict, exige_serial: bool):
@@ -791,9 +842,47 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None, in
     return kept, issues, notas, running, descartadas
 
 
+def _page_kind_notes(kinds: dict | None) -> tuple[list[str], list[str]]:
+    """(issues, notas) da classificacao de paginas.
+
+    Pagina de embarque e nota: e decisao de calculo, auditavel, nao defeito.
+    Problema (-> needs_review) e o que so um humano resolve: pagina com
+    titulo de packing list E preco, e documento sem NENHUMA pagina de fatura
+    -- este ultimo e o "e invoice ou nao" do plano de aceitacao.
+    """
+    issues, notas = [], []
+    if not kinds or not kinds.get("pages"):
+        return issues, notas
+    packing = kinds["packing_list_pages"]
+    if packing:
+        evidencia = []
+        for p in kinds["pages"]:
+            if p["kind"] == pagekinds.PACKING_LIST and p.get("evidence"):
+                evidencia.append(p["evidence"][0])
+        notas.append(
+            "pagina(s) %s classificada(s) como packing list / nota de entrega "
+            "(%s); ignorada(s) para itens" % (
+                ", ".join(str(n) for n in packing),
+                ", ".join(sorted(set(evidencia))[:4]) or "sem evidencia"))
+    if kinds.get("mixed_pages"):
+        issues.append(
+            "pagina(s) %s com titulo de packing list E preco; enviada(s) ao "
+            "modelo como fatura, conferir os itens" % ", ".join(
+                str(n) for n in kinds["mixed_pages"]))
+    if kinds.get("page_count_mismatch"):
+        notas.append("%d pagina(s) no texto do OCR; a classificacao de paginas "
+                     "contou %d" % (kinds.get("ocr_page_count") or 0, kinds["page_count"]))
+    tipos = {p["kind"] for p in kinds["pages"]}
+    if pagekinds.INVOICE not in tipos and pagekinds.UNKNOWN not in tipos:
+        issues.append("nenhuma pagina de fatura identificada: todas as %d "
+                      "pagina(s) sao packing list / nota de entrega; o documento "
+                      "pode nao ser uma invoice" % kinds["page_count"])
+    return issues, notas
+
+
 def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
                cat_note=None, content: str = "", exigem_serial=None,
-               words=None) -> dict[str, Any]:
+               words=None, page_kinds=None) -> dict[str, Any]:
     """Forca a saida do modelo no contrato do structurer e valida o que der.
 
     O numero da invoice e o do proprio documento: 10 das 28 faturas do corpus
@@ -856,6 +945,11 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
     if cat_note:
         issues.append(cat_note)
 
+    page_issues, page_notas = _page_kind_notes(page_kinds)
+    issues.extend(page_issues)
+    notas.extend(page_notas)
+    page_spans = (page_kinds or {}).get("pages") or []
+
     if entries and len(cat_numbers) == len(entries):
         authoritative = cat_numbers
     elif len(cat_numbers) == 1 and len(entries) == 1:
@@ -876,6 +970,20 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
         kept, line_issues, line_notes, running, descartadas = _check_lines(
             tag, raw_lines, content, exigem_serial, word_index)
         issues.extend(line_issues)
+        # Prompt e pedido, nao contrato: se o modelo tirou uma linha de pagina
+        # de embarque mesmo assim, o part number dela so existe la. Marcar,
+        # nunca descartar -- e a aritmetica e quem confirma, porque uma linha
+        # a mais estoura o total impresso.
+        acusados = set()
+        for li in kept:
+            pn = li.get("part_number")
+            if pn in acusados:
+                continue
+            if pagekinds.only_in_pages(pn, content, page_spans):
+                acusados.add(pn)
+                issues.append("%s: part number '%s' so aparece em pagina de packing "
+                              "list / nota de entrega; a linha provavelmente nao e "
+                              "da fatura" % (tag, pn))
 
         number = inv.get("invoice_number")
         expected = authoritative[index]
@@ -1022,7 +1130,19 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
     return {"invoices": invoices, "confidence": confidence,
             "confidence_source": source,
             "model_confidence": payload.get("confidence"),
-            "validation": issues, "notes": notas}
+            "validation": issues, "notes": notas,
+            # Vai para raw_extraction.structured e dali para a tela: o
+            # revisor ve quais paginas foram ignoradas e por que.
+            "page_kinds": _page_kinds_out(page_kinds)}
+
+
+def _page_kinds_out(kinds: dict | None) -> list[dict]:
+    """So o que a tela precisa: numero, tipo e evidencia. Offsets ficam fora."""
+    if not kinds:
+        return []
+    return [{"page_number": p["page_number"], "kind": p["kind"],
+             "evidence": list(p.get("evidence") or [])}
+            for p in kinds.get("pages") or []]
 
 
 class MockStructurer(LLMStructurer):
