@@ -92,9 +92,11 @@ pu, vals = apportion([(1, 18413.0), (1, 18413.0), (1, None)], 161.99)
 check("3YNDJ: por 2, nao 3", round(pu, 4), 80.995)
 check("linha sem preco nao recebe", vals[2], None)
 check("sem encargo nada e rateado", apportion([(1, 10.0)], 0), (None, [None]))
-check("quantidade zero fora", apportion([(0, 10.0), (2, 5.0)], 4.0)[1], [None, ("7.00", "14.00")])
+check("quantidade zero fora", apportion([(0, 10.0), (2, 5.0)], 4.0)[1], [None, ("7", "14.00")])
+# 4 casas no unitario, como o unit_price: com 2, 0,162 + 0,2 virava 0,36.
+check("peca de centavos", apportion([(5, 0.162)], 1.0)[1], [("0.362", "1.81")])
 check("Decimal tambem (backend)", apportion([(__import__("decimal").Decimal("2"),
-      __import__("decimal").Decimal("5"))], __import__("decimal").Decimal("1"))[1], [("5.50", "11.00")])
+      __import__("decimal").Decimal("5"))], __import__("decimal").Decimal("1"))[1], [("5.5", "11.00")])
 
 print("=== PART_NUMBER_RE: deve ACEITAR (part numbers reais do corpus) ===")
 aceitar = ["1234567", "6511308", "6522586", "652-2586", "463-8344", "674-8657",

@@ -412,11 +412,11 @@ def _classify_part_number(pn, content: str):
     text = str(pn).strip()
     # A AutoMotionShade imprime 'CAT 657-3755' na coluna de item: o prefixo e
     # da marca, nao do numero. Sem tirar, a unica peca da fatura nao tinha
-    # forma de codigo e saia de line_items junto com a linha de embalagem.
+    # forma de codigo e saia de line_items junto com a linha de embalagem. O
+    # valor gravado continua o impresso, com a marca: e o que se rastreia.
     m = _CAT_PREFIX_RE.match(text)
-    if m and PART_NUMBER_RE.match(_split_part_number(m.group(1))[0]):
-        text = m.group(1)
-    base, suffix = _split_part_number(text)
+    unbranded = m.group(1) if m and PART_NUMBER_RE.match(_split_part_number(m.group(1))[0]) else text
+    base, suffix = _split_part_number(unbranded)
 
     if PART_NUMBER_RE.match(base):
         normalised = base.replace("-", "")
@@ -478,7 +478,7 @@ def _landed(kept: list, extra):
     for li, value in zip(kept, values):
         if value is not None:
             li["unit_price_landed"], li["amount_landed"] = value
-    return per_unit, sum(q for (q, u), v in zip(pairs, values) if v is not None)
+    return per_unit, (extra or 0.0) / per_unit
 
 
 # Fator para kg. O 'Peso Unitario' do gabarito do cliente e em kg (3649717 ->
@@ -579,6 +579,10 @@ _PACKAGING_RE = re.compile(
 _FREIGHT_RE = re.compile(
     r"FREIGHT|\bFRETE\b|\bSHIPPING\b|\bTRANSPORT(?:ATION)?\b|\bCARRIAGE\b|"
     r"\bLOGISTICS?\s+CHARGES?\b|\bTRASPORTO\b|\bFRACHT\b", re.IGNORECASE)
+
+
+# Nota que vem como linha: a marcacao de uso final das CIVs de motor.
+_NOTE_LINE_RE = re.compile(r"\bEND\s*USE\b", re.IGNORECASE)
 
 
 def _charge_kind(li: dict, status: str) -> str | None:
@@ -889,9 +893,19 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None, in
             charges[kind] += value
             descartadas.append(dict(li, discard_reason=(
                 "encargo de %.2f movido para %s da invoice" % (value, kind))))
+            # Mover para encargo nao quebra a soma, entao a rede de seguranca
+            # nao pega o engano. Quando so a DESCRICAO diz que e encargo
+            # ('CAIXA DE TRANSMISSAO' tambem casa), quem confirma e o revisor.
+            if not _charge_kind({"part_number": li.get("part_number")}, "other_code"):
+                issues.append("%s: linha '%s' movida para %s pela descricao; conferir "
+                              "se nao e peca" % (line_tag, li.get("description"), kind))
             continue
 
-        sem_valor = status == "other_code" and unit is None and amount is None
+        # Codigo de fornecedor sem preco nem valor so sai quando o texto diz o
+        # que ele e: nota de END USE (0V3456) ou embalagem (caixas da Carraro).
+        # Um item real cujo preco o modelo nao leu fica, e acusa a falta.
+        sem_valor = (status == "other_code" and unit is None and amount is None
+                     and bool(_NOTE_LINE_RE.search(full_text) or _PACKAGING_RE.search(full_text)))
         if status in _NAO_E_ITEM or sem_valor:
             if sem_valor:
                 motivo = "codigo '%s' sem preco nem valor; nao e item de fatura" % printed
@@ -910,7 +924,11 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None, in
         unit, amount, derived, why = _derive_line_numbers(qty, unit, amount)
         if derived:
             li = dict(li, **{derived: unit if derived == "unit_price" else amount})
-            notas.append("%s: %s" % (line_tag, why))
+            # Problema, nao nota: a conta mostra QUE ha erro, mas a escolha de
+            # qual numero esta errado e hipotese -- uma quantidade mal lida
+            # (2 em vez de 1) produz a mesma conta. O valor ja vai corrigido
+            # para a tela, e o revisor confirma.
+            issues.append("%s: %s; conferir" % (line_tag, why))
 
         fc = None
         if index is not None:

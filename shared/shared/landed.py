@@ -14,6 +14,8 @@ com Decimal, e o teste roda sem banco.
 """
 from __future__ import annotations
 
+from decimal import ROUND_HALF_UP, Decimal
+
 
 def _f(v) -> float | None:
     if v is None:
@@ -35,8 +37,10 @@ def apportion(lines, extra):
     USE' (quantidade 1, sem preco) entrava na conta, e o frete de 161,99 saiu
     rateado por 3 unidades quando eram 2 motores.
 
-    Os valores saem como texto com duas casas, que e o que o gabarito traz
-    (395,16), e servem tanto ao JSON do structurer quanto ao Decimal do banco.
+    Os valores saem como texto, que serve tanto ao JSON do structurer quanto
+    ao Decimal do banco: o unitario com ate 4 casas, como o unit_price (peca
+    de centavos: 0,162 + 0,2 = 0,362, e com 2 casas virava 0,36 e nao fechava
+    com o total), e o total com 2. O gabarito traz 395,16, que sai igual.
     Sem encargo, ou sem linha elegivel, nada e rateado: (None, [None, ...]).
     """
     pairs = [(_f(q), _f(u)) for q, u in lines]
@@ -51,5 +55,10 @@ def apportion(lines, extra):
         if u is None or q is None or q <= 0:
             out.append(None)
             continue
-        out.append(("%.2f" % (u + per_unit), "%.2f" % ((u + per_unit) * q)))
+        # Decimal com arredondamento comercial, e o total sai do unitario JA
+        # arredondado: com float e '%.2f', 18.493,995 aparecia como 18.494,00
+        # no unitario e 18.493,99 no total da mesma linha de quantidade 1.
+        unit = Decimal(repr(u + per_unit)).quantize(Decimal("0.0001"), ROUND_HALF_UP)
+        total = (unit * Decimal(repr(q))).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        out.append((format(unit.normalize(), "f"), format(total, "f")))
     return per_unit, out

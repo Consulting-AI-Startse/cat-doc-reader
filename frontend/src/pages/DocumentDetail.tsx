@@ -145,13 +145,25 @@ function toPayload(invoices: InvoiceForm[]): DocumentUpdate {
 }
 
 // Só os valores com encargos vêm do servidor depois de salvar; o resto do
-// formulário fica como o revisor deixou.
+// formulário fica como o revisor deixou. Casados pelo conteúdo da linha, não
+// pela posição: invoices e linhas não têm ordem garantida no banco, e o PATCH
+// as recria. Linha que não casa fica sem valor, nunca com o de outra.
+const lineKey = (pn: unknown, serial: unknown, qty: unknown, unit: unknown) =>
+  [str(pn).trim(), str(serial).trim(), Number(qty), Number(unit)].join("|");
+
 function withLanded(form: InvoiceForm[], saved: Detail): InvoiceForm[] {
-  return form.map((inv, i) => ({
+  const pool = new Map<string, { unit: string; amount: string }[]>();
+  for (const inv of saved.invoices) {
+    for (const li of inv.line_items) {
+      const k = lineKey(li.part_number, li.serial_number, li.quantity, li.unit_price);
+      pool.set(k, [...(pool.get(k) ?? []), { unit: str(li.unit_price_landed), amount: str(li.amount_landed) }]);
+    }
+  }
+  return form.map((inv) => ({
     ...inv,
-    line_items: inv.line_items.map((l, j) => {
-      const li = saved.invoices[i]?.line_items[j];
-      return li ? { ...l, _landed: { unit: str(li.unit_price_landed), amount: str(li.amount_landed) } } : l;
+    line_items: inv.line_items.map((l) => {
+      const hit = pool.get(lineKey(l.part_number, l.serial_number, l.quantity, l.unit_price))?.shift();
+      return { ...l, _landed: hit ?? { unit: "", amount: "" } };
     }),
   }));
 }

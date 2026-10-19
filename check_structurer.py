@@ -476,14 +476,17 @@ check("unitario = valor da linha / 2", {l["unit_price"] for l in inv["line_items
 check("e cada registro vale 18.413", {l["amount"] for l in inv["line_items"]}, {"18413"})
 check("o total impresso fecha", any("nao fecha" in v for v in r["validation"]), False)
 check("sem a acusacao 2 x 36826", any("73652" in v for v in r["validation"]), False)
-check("a correcao vira nota auditavel",
-      any("e o valor da linha" in n for n in r["notes"]), True)
+# A conta mostra QUE ha erro; qual numero esta errado e hipotese (uma
+# quantidade mal lida da a mesma conta). O valor vai corrigido, e o revisor
+# confirma: problema, nao nota.
+check("a correcao vai para revisao",
+      [v for v in r["validation"] if "e o valor da linha" in v and "conferir" in v] != [], True)
 check("0V3456 sai: codigo sem preco nem valor",
       sorted(d["part_number"] for d in inv["discarded_lines"]), ["0V3456", "I/C Material"])
 check("frete rateado por 2 unidades, nao 3",
       any("80.9950 por unidade, sobre 2 unidade" in n for n in r["notes"]), True)
-check("unitario com encargos", {l["unit_price_landed"] for l in inv["line_items"]}, {"18493.99"})
-check("sem problema nenhum", r["validation"], [])
+check("unitario com encargos", {l["unit_price_landed"] for l in inv["line_items"]}, {"18493.995"})
+check("e o unico problema e a correcao", len(r["validation"]), 1)
 
 print("=== 14b. Freudenberg: preco impresso por 10 unidades ===")
 # '1,62 / 10', quantidade 5, valor da linha 0,81. A tela mostrou 162.
@@ -492,8 +495,8 @@ fst = {"invoices": [{"invoice_number": "2660154740", "total": "0,81", "line_item
     "confidence": 0.95}
 r = _normalise(fst, 0.95, content="081-3814 1,62 / 10")
 check("unitario de uma peca", r["invoices"][0]["line_items"][0]["unit_price"], "0.162")
-check("explicado na nota", any("preco por 10 unidades" in n for n in r["notes"]), True)
-check("e nao e problema", r["validation"], [])
+check("explicado para o revisor",
+      any("preco por 10 unidades" in v for v in r["validation"]), True)
 fst["invoices"][0]["line_items"][0]["unit_price"] = "0.162"
 r = _normalise(fst, 0.95, content="081-3814 1,62 / 10")
 check("o '0.162' que o modelo derivou e 0,162",
@@ -508,12 +511,15 @@ ams = {"invoices": [{"invoice_number": "IN260306005", "total": "960.00", "line_i
      "quantity": "40", "unit_price": "2.15", "amount": "86.00"}]}], "confidence": 0.95}
 r = _normalise(ams, 0.95, content="CAT 657-3755 _PackagingSale")
 inv = r["invoices"][0]
-check("a peca fica, sem o prefixo CAT", [l["part_number"] for l in inv["line_items"]], ["657-3755"])
+check("a peca fica, gravada como impressa", [l["part_number"] for l in inv["line_items"]], ["CAT 657-3755"])
+check("e reconhecida como part number CAT", inv["line_items"][0]["part_number_normalised"], "6573755")
 check("embalagem foi para o encargo", inv["packaging_cost"], "86")
 check("a linha de embalagem esta nas descartadas",
       "encargo" in inv["discarded_lines"][0]["discard_reason"], True)
 check("e o total fecha", any("nao fecha" in v for v in r["validation"]), False)
-check("unitario com encargos 21,85 + 86/40", inv["line_items"][0]["unit_price_landed"], "24.00")
+check("unitario com encargos 21,85 + 86/40", inv["line_items"][0]["unit_price_landed"], "24")
+# O proprio codigo diz que e embalagem: nota, sem revisao.
+check("encargo pelo codigo nao pede revisao", r["validation"], [])
 
 print("=== 14d. embalagem no cabecalho E em linha conta uma vez ===")
 ams["invoices"][0]["packaging_cost"] = "86.00"
@@ -559,6 +565,29 @@ anel = {"invoices": [{"invoice_number": "739 /01", "total": "20.00", "line_items
 r = _normalise(anel, 0.95, content="15.1301.466")
 check("o item fica", len(r["invoices"][0]["line_items"]), 1)
 check("e nada vira encargo", r["invoices"][0]["packaging_cost"], None)
+
+print("=== 14h. os achados do code review: o que NAO pode passar calado ===")
+# Quantidade mal lida (2 em vez de 1) da a mesma conta que unitario errado.
+qtd = {"invoices": [{"invoice_number": "X", "total": "100.00", "line_items": [
+    {"part_number": "463-8344", "quantity": "2", "unit_price": "100.00", "amount": "100.00"}]}],
+    "confidence": 0.95}
+r = _normalise(qtd, 0.95, content="463-8344")
+check("quantidade suspeita vai para revisao", r["confidence"], 0.50)
+# Peca sem codigo cuja descricao casa um termo de encargo.
+cx = {"invoices": [{"invoice_number": "X", "total": "1300.00", "line_items": [
+    {"part_number": "463-8344", "quantity": "1", "unit_price": "100.00", "amount": "100.00"},
+    {"part_number": None, "description": "CAIXA DE TRANSMISSAO", "quantity": "1",
+     "unit_price": "1.200,00", "amount": "1.200,00"}]}], "confidence": 0.95}
+r = _normalise(cx, 0.95, content="463-8344")
+check("encargo so pela descricao pede revisao",
+      any("pela descricao; conferir" in v for v in r["validation"]), True)
+# Item de fornecedor cujo preco o modelo nao leu: fica, e acusa a falta.
+semp = {"invoices": [{"invoice_number": "X", "total": "20.00", "line_items": [
+    {"part_number": "15.1301.466", "description": "O-RING", "quantity": "1"}]}],
+    "confidence": 0.95}
+r = _normalise(semp, 0.95, content="15.1301.466")
+check("item sem preco lido continua item", len(r["invoices"][0]["line_items"]), 1)
+check("e acusa a falta", any("amount ausente" in v for v in r["validation"]), True)
 
 print()
 if falhas:
