@@ -16,6 +16,9 @@ Esforço: **XS** < 1h · **S** ~meio dia · **M** ~1–2 dias · **L** ~1 semana
 | ~~7~~ | ~~Classificação invoice × packing list~~ | M | alto | **feito** |
 | ~~8~~ | ~~Relatório de confiança por fornecedor~~ | M | médio | **feito** |
 | ~~9~~ | ~~Métricas de processamento por período~~ | M | médio | **feito** |
+| 10 | Aritmética da linha, linhas de encargo, frete/embalagem gravados | M | **muito alto** | — |
+| 11 | Part number pela lista de PN: fornecedor × CAT, "fora da lista" na tela | M | **muito alto** | 3 |
+| 12 | Documento com muitas faturas: fatura que falta | ? | alto | **bloqueado** (PDF 2026RFM04632) |
 | — | `Invoice Type`, `Import Process`, `CSAR`, `PFO`, `##` | ? | ? | **bloqueado** |
 | ~~—~~ | ~~Texto fora do alfabeto latino~~ | S | médio | **feito** |
 | — | Word/Excel | ? | ? | **escopo indefinido** |
@@ -100,6 +103,11 @@ conhecida para conferir (`3649717 → 19,81`).
   do prompt, `_serialize_line` e `LineIn` em `backend/app/api/documents.py`
 
 ## 3. Lista de PN Liberados (M)
+
+**Parcial (19/10):** a lista está importada e decide `requires_serial`, mas a
+checagem `released` / `not_released` por linha descrita abaixo **nunca foi
+implementada**: o `lookup` roda uma vez por documento só para o serial. É o
+item 11, e é o que o cliente chama de "aba pesquisar part number?".
 
 `PN Liberados.xlsx` tem **206.769 part numbers** com descrição, em duas colunas
 (`PECA`, `NOME`), **sem hífen** — exatamente a convenção do nosso
@@ -485,6 +493,32 @@ só em chinês) vira problema e vai para revisão, porque um supplier nulo
 desliga a checagem de duplicata sem avisar. O `invoice_number_source` é
 exceção — é rótulo, não valor. Teste no `check_rules.py`.
 
+## 10, 11 e 12 — o relatório de testes da CAT (19/10)
+
+A CAT testou em duas etapas (até 14/09 e a partir de 02/10) e mandou 13
+slides de erros. A análise completa, erro a erro, com o que já foi corrigido e
+o que falta, está em `docs/relatorio-testes-cat-2026-10.md`. Resumo:
+
+- **10 — Aritmética da linha e encargos (M).** O modelo copia o valor
+  estendido no unitário (`2 × 6522600 = 36.826` sai com unitário 36.826, e a
+  expansão por serial grava 73.652); `_num("0.162")` devolve 162; linha de
+  encargo ("Packaging - Sales 86.00") ou de nota sem preço (0V3456 END USE,
+  "CAIXA DE MADEIRA") fica na tabela ou some da conta; o rateio divide pela
+  linha sem preço; e `freight`, `packaging_cost`, `unit_price_landed` nunca
+  são gravados nem exibidos, embora o gabarito espere 395,16 = 388,46 + 603/90.
+  Correção: derivar o unitário de `amount / qty` antes da expansão, consertar
+  o `_num`, mover encargo de linha para `packaging_cost` / `freight`, descartar
+  `other_code` sem preço nem valor, migração `0009` e colunas na tela.
+- **11 — Part number pela lista (M, depende do 3).** "Part number errado,
+  MAIORIA": a linha imprime código do fornecedor e código do cliente
+  (`148409` × `2396739`, `MN447750-31914C` × `290-2789`) e o modelo escolhe o
+  do fornecedor. Resolver por linha com a lista de PN (um set `liberados`
+  passado ao structurer, da mesma consulta do serial), `supplier_part_number`
+  no item, e status `not_released` na tela como nota.
+- **12 — Muitas faturas (bloqueado).** 2026RFM04632 saiu com 14 de 15.
+  Hipótese principal: resposta truncada em `max_tokens = 16000`, e o
+  `finish_reason` não é lido. Precisa do PDF.
+
 ---
 
 ## Perguntas em aberto para a CAT
@@ -508,3 +542,8 @@ exceção — é rótulo, não valor. Teste no `check_rules.py`.
 7. O gabarito tem `Adição 6` **duplicada** em duas faturas, com o total da
    adição repetido nas duas linhas (30 × 569,46 = 17.083,80, mas as duas dizem
    34.167,60). É intencional?
+8. Unitário na tela: o impresso com "unitário com encargos" ao lado (proposta),
+   ou substituir pelo rateado? E o divisor do rateio: unidade, valor ou peso?
+9. Fabricante ausente do documento (Carraro): vazio ou igual ao fornecedor,
+   com nota?
+10. 2026RFM04632 (14 de 15 faturas): precisamos do PDF.
