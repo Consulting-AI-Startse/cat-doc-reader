@@ -68,11 +68,13 @@ Entao:
 - 0006 `serial_number` no item (motor repete o mesmo PN, uma vez por serial);
 - 0007 confianca por campo: JSONB na linha e no cabecalho, agregados em coluna na invoice;
 - 0008 `unit` e `unit_weight` (kg) no item. So colunas nulas, sem GRANT novo.
+- 0009 `freight` e `packaging_cost` na invoice, `unit_price_landed` e `amount_landed` no
+  item: o structurer ja os calculava e o worker os descartava. So colunas nulas.
 
 Toda migracao que CRIA TABELA exige conferir os privilegios das Managed Identities
 depois (`DEPLOY.md`): o `pg_default_acl` de producao ja esteve vazio.
 
-`db/db-setup-v2.sql` e o mesmo schema achatado, na **head 0008**, pra aplicar direto no
+`db/db-setup-v2.sql` e o mesmo schema achatado, na **head 0009**, pra aplicar direto no
 ambiente da CAT (Fase 0 do DEPLOY.md). E **gerado, nao editado a mao**:
 
 ```bash

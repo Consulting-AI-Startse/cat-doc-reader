@@ -230,12 +230,31 @@ lugar do Azure OpenAI — está em `docs/modo-local.md`, com a matriz de setting
   que apagaria as faturas de fornecedor inteiras. E não é descarte de verdade:
   a linha vai para `discarded_lines` com o motivo, e aparece na tela.
 
+  **Ampliada em 19/10 (leva 14), pelo relatório de testes da CAT:** saem também
+  o `other_code` **sem preço nem valor que o texto diz o que é** (nota de
+  `END USE` como o `0V3456`, embalagem como as caixas da Carraro; um item cujo
+  preço o modelo não leu fica e acusa a falta) e a linha de **encargo com
+  valor** ("Packaging - Sales 86.00", "I/C freight & ship"), cujo valor vai
+  para `packaging_cost` / `freight` da invoice. Código de fornecedor só vira
+  encargo pelo próprio código, nunca pela descrição: "15.1301.466 PACKING
+  RING" é peça. E quando só a descrição diz que é encargo, vira problema:
+  **mover peça para encargo não quebra a soma**, então a rede de segurança
+  abaixo não pega esse engano — quem pega é o revisor.
+
   O filtro roda **antes da conferência aritmética**, de propósito. Na fatura de
   motor 93872204 a nota `END USE` vinha como item com o preço do motor e
   estourava o total; sem ela a soma fecha. E a recíproca é a rede de segurança:
   **se o filtro derrubar uma linha legítima, a soma para de fechar e o
   documento vai para revisão sozinho.** É o que separa um filtro auditável de
   um filtro cego — tem teste travando isso (`check_structurer.py`, seção 10d).
+- **O amount impresso é a âncora da linha; o unitário é que se ajusta.** Quando
+  `qty × unit ≠ amount` e a conta mostra qual número está errado (o unitário é o
+  valor da linha, ou é preço por 10/100/1000), o `_derive_line_numbers` grava
+  `amount / qty` e manda para revisão: a conta mostra *que* há erro, mas qual
+  número está errado é hipótese (quantidade mal lida dá a mesma conta). O
+  valor já chega corrigido à tela. Tem de rodar **antes da expansão por serial**,
+  que copia o unitário para o amount de cada registro: na CIV 3YNDJ um unitário
+  errado virava 73.652 gravados numa linha de 36.826.
 - **Rejeitar quer dizer "esta leitura não presta, vou subir de novo".** Não é
   decisão de negócio sobre a fatura. Por isso documento `rejected` (e `error`)
   não serve de referência para duplicata: se servisse, o reenvio corrigido

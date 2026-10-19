@@ -11,7 +11,9 @@ if hasattr(sys.stdout, "reconfigure"):
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "function"))
 sys.path.insert(0, os.getcwd())
 
-from pipeline.structurer import _num, _invoice_supplier, PART_NUMBER_RE
+from pipeline.structurer import (_num, _invoice_supplier, PART_NUMBER_RE,
+                                 _charge_kind, _derive_line_numbers)
+from shared.landed import apportion
 from shared.dedupe import normalise_invoice_number, normalise_supplier
 
 falhas = []
@@ -43,6 +45,58 @@ for s, e in [("USD 29,579.82", 29579.82), ("1.234", 1234.0), ("16", 16.0),
              ("-1.234,50", -1234.50), ("(500.00)", -500.0),
              ("", None), ("abc", None), (None, None)]:
     check(repr(s), _num(s), e)
+
+print("=== _num: um separador so, sem zero a esquerda no milhar (leva 14) ===")
+# Freudenberg: o modelo derivou '0.162' de '1,62 / 10' e a regra antiga leu
+# 162. A Graziano imprime '5700,000', que a regra antiga lia como 5.700.000.
+for s, e in [("0.162", 0.162), ("0,162", 0.162), ("1234.567", 1234.567),
+             ("5700,000", 5700.0), ("12.345", 12345.0), ("1.234.567", 1234567.0),
+             ("1,234", 1234.0), ("12,345,678", 12345678.0), ("0,5", 0.5)]:
+    check(s, _num(s), e)
+
+print("=== _derive_line_numbers: o amount impresso e a ancora ===")
+for label, args, esperado in [
+    ("CIV 3YNDJ: valor no unitario", (2.0, 36826.0, 36826.0), (18413.0, 36826.0, "unit_price")),
+    ("preco por 10 (Freudenberg)", (5.0, 1.62, 0.81), (0.162, 0.81, "unit_price")),
+    ("preco por 100", (4.0, 250.0, 10.0), (2.5, 10.0, "unit_price")),
+    ("amount ausente", (3.0, 2.5, None), (2.5, 7.5, "amount")),
+    ("unit_price ausente", (4.0, None, 10.0), (2.5, 10.0, "unit_price")),
+    ("conta certa nao muda", (2.0, 5.0, 10.0), (5.0, 10.0, None)),
+    ("quantidade 1 nao tem o que derivar", (1.0, 7.0, 9.0), (7.0, 9.0, None)),
+    ("quantidade zero", (0.0, 7.0, 9.0), (7.0, 9.0, None)),
+    ("quantidade ausente", (None, 7.0, 9.0), (7.0, 9.0, None)),
+    ("erro sem padrao fica como veio", (3.0, 7.0, 50.0), (7.0, 50.0, None)),
+]:
+    u, a, campo, _ = _derive_line_numbers(*args)
+    check(label, (u, a, campo), esperado)
+
+print("=== _charge_kind: encargo x peca ===")
+for label, li, status, esperado in [
+    ("_PackagingSale", {"part_number": "_PackagingSale"}, "not_a_code", "packaging_cost"),
+    ("I/C freight & ship", {"part_number": None, "description": "I/C freight & ship"}, "missing", "freight"),
+    ("Logistic Charges", {"part_number": "Logistic Charges 1"}, "not_a_code", "freight"),
+    ("CAIXA DE MADEIRA", {"part_number": "x", "description": "CAIXA DE MADEIRA"}, "not_a_code", "packaging_cost"),
+    ("codigo PACKAGING", {"part_number": "PACKAGING"}, "other_code", "packaging_cost"),
+    # peca: codigo de fornecedor nao vira encargo pela descricao
+    ("15.1301.466 PACKING RING", {"part_number": "15.1301.466", "description": "PALLET RING"}, "other_code", None),
+    ("PACKING RING sem codigo", {"part_number": None, "description": "PACKING RING"}, "missing", None),
+    ("part number CAT nunca", {"part_number": "463-8344", "description": "FREIGHT"}, "cat", None),
+    ("prosa qualquer", {"part_number": "I/C Material"}, "not_a_code", None),
+]:
+    check(label, _charge_kind(li, status), esperado)
+
+print("=== apportion: so linha com preco entra no divisor ===")
+pu, vals = apportion([(90, 388.46)], 603.0)
+check("gabarito CD970373103", vals, [("395.16", "35564.40")])
+pu, vals = apportion([(1, 18413.0), (1, 18413.0), (1, None)], 161.99)
+check("3YNDJ: por 2, nao 3", round(pu, 4), 80.995)
+check("linha sem preco nao recebe", vals[2], None)
+check("sem encargo nada e rateado", apportion([(1, 10.0)], 0), (None, [None]))
+check("quantidade zero fora", apportion([(0, 10.0), (2, 5.0)], 4.0)[1], [None, ("7", "14.00")])
+# 4 casas no unitario, como o unit_price: com 2, 0,162 + 0,2 virava 0,36.
+check("peca de centavos", apportion([(5, 0.162)], 1.0)[1], [("0.362", "1.81")])
+check("Decimal tambem (backend)", apportion([(__import__("decimal").Decimal("2"),
+      __import__("decimal").Decimal("5"))], __import__("decimal").Decimal("1"))[1], [("5.5", "11.00")])
 
 print("=== PART_NUMBER_RE: deve ACEITAR (part numbers reais do corpus) ===")
 aceitar = ["1234567", "6511308", "6522586", "652-2586", "463-8344", "674-8657",
