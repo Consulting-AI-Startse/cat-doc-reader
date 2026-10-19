@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.deps import get_db, get_storage
 from app.processing import enqueue_processing
 from shared.confidence import summarise
+from shared.landed import apportion
 from shared.dedupe import (
     find_original,
     normalise_invoice_number,
@@ -64,6 +65,8 @@ def _serialize_line(li: InvoicePartNumberItem) -> dict:
         "quantity": li.quantity,
         "unit_price": li.unit_price,
         "amount": li.amount,
+        "unit_price_landed": li.unit_price_landed,
+        "amount_landed": li.amount_landed,
         "purchase_order": li.purchase_order,
         "incoterm": li.incoterm,
         "country_of_origin": li.country_of_origin,
@@ -88,6 +91,8 @@ def _serialize_invoice(inv: Invoice) -> dict:
         "supplier": inv.supplier,
         "currency": inv.currency,
         "total": inv.total,
+        "freight": inv.freight,
+        "packaging_cost": inv.packaging_cost,
         "field_confidence": inv.field_confidence,
         "min_field_confidence": inv.min_field_confidence,
         "mean_field_confidence": inv.mean_field_confidence,
@@ -215,6 +220,8 @@ class InvoiceIn(BaseModel):
     supplier: str | None = None
     currency: str | None = None
     total: str | float | None = None
+    freight: str | float | None = None
+    packaging_cost: str | float | None = None
     field_confidence: dict[str, dict] | None = None
     line_items: list[LineIn] = []
 
@@ -364,6 +371,8 @@ def update_document(
             supplier_key=normalise_supplier(supplier),
             currency=_opt_str(inv_in.currency),
             total=_opt_decimal(inv_in.total),
+            freight=_opt_decimal(inv_in.freight),
+            packaging_cost=_opt_decimal(inv_in.packaging_cost),
             field_confidence=inv_in.field_confidence,
             # Recalculados a cada salvar, do que veio: e o que conta as
             # correcoes do revisor no relatorio por fornecedor.
@@ -391,6 +400,16 @@ def update_document(
                     field_confidence=li.field_confidence,
                 )
             )
+        # O unitario com encargos nao vem da tela: e refeito aqui, do que o
+        # revisor salvou. Se viesse do navegador, corrigir o frete ou um
+        # unitario deixaria gravado o rateio da extracao.
+        _, landed = apportion(
+            [(li.quantity, li.unit_price) for li in inv.line_items],
+            (inv.freight or 0) + (inv.packaging_cost or 0),
+        )
+        for li, value in zip(inv.line_items, landed):
+            li.unit_price_landed, li.amount_landed = (
+                (Decimal(value[0]), Decimal(value[1])) if value else (None, None))
         doc.invoices.append(inv)
 
         # Recheca depois da edicao: corrigir o fornecedor ou o numero a mao muda

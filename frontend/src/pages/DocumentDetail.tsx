@@ -42,9 +42,12 @@ interface LineForm {
   // valor mudou vira 'corrected' (lib/confidence.ts).
   _fc: FieldConfidenceMap | null;
   _orig: Record<string, string>;
+  // Unitário e total com encargos, como o servidor calculou. Só leitura: o
+  // PATCH refaz o rateio do que for salvo, então não vão no payload.
+  _landed: { unit: string; amount: string };
 }
 
-type LineField = Exclude<keyof LineForm, "_fc" | "_orig">;
+type LineField = Exclude<keyof LineForm, "_fc" | "_orig" | "_landed">;
 
 interface InvoiceForm {
   invoice_number: string;
@@ -52,6 +55,8 @@ interface InvoiceForm {
   supplier: string;
   currency: string;
   total: string;
+  freight: string;
+  packaging_cost: string;
   _fc: FieldConfidenceMap | null;
   _orig: Record<string, string>;
   line_items: LineForm[];
@@ -69,6 +74,8 @@ function buildForm(d: Detail): InvoiceForm[] {
       supplier: str(inv.supplier),
       currency: str(inv.currency),
       total: str(inv.total),
+      freight: str(inv.freight),
+      packaging_cost: str(inv.packaging_cost),
     };
     return {
       ...head,
@@ -92,7 +99,12 @@ function buildForm(d: Detail): InvoiceForm[] {
           unit: str(li.unit),
           unit_weight: str(li.unit_weight),
         };
-        return { ...values, _fc: li.field_confidence, _orig: values };
+        return {
+          ...values,
+          _fc: li.field_confidence,
+          _orig: values,
+          _landed: { unit: str(li.unit_price_landed), amount: str(li.amount_landed) },
+        };
       }),
     };
   });
@@ -107,6 +119,8 @@ function toPayload(invoices: InvoiceForm[]): DocumentUpdate {
       supplier: orNull(inv.supplier),
       currency: orNull(inv.currency),
       total: orNull(inv.total),
+      freight: orNull(inv.freight),
+      packaging_cost: orNull(inv.packaging_cost),
       field_confidence: withCorrections(inv._fc, inv._orig, inv as unknown as Record<string, string>),
       line_items: inv.line_items.map((l) => ({
         part_number: orNull(l.part_number),
@@ -130,6 +144,18 @@ function toPayload(invoices: InvoiceForm[]): DocumentUpdate {
   };
 }
 
+// Só os valores com encargos vêm do servidor depois de salvar; o resto do
+// formulário fica como o revisor deixou.
+function withLanded(form: InvoiceForm[], saved: Detail): InvoiceForm[] {
+  return form.map((inv, i) => ({
+    ...inv,
+    line_items: inv.line_items.map((l, j) => {
+      const li = saved.invoices[i]?.line_items[j];
+      return li ? { ...l, _landed: { unit: str(li.unit_price_landed), amount: str(li.amount_landed) } } : l;
+    }),
+  }));
+}
+
 const emptyLine = (): LineForm => ({
   part_number: "",
   serial_number: "",
@@ -148,6 +174,7 @@ const emptyLine = (): LineForm => ({
   unit_weight: "",
   _fc: null,
   _orig: {},
+  _landed: { unit: "", amount: "" },
 });
 
 export function DocumentDetail() {
@@ -185,8 +212,15 @@ export function DocumentDetail() {
 
   const save = useMutation({
     mutationFn: () => updateDocument(id, toPayload(form!)),
-    onSuccess: () => {
-      if (form) setBaseline(JSON.stringify(form));
+    onSuccess: (saved) => {
+      // O formulário não é reconstruído no refetch (apagaria edição em
+      // andamento), então o rateio que o servidor refez chega por aqui. O PATCH
+      // recria as linhas na ordem enviada: o índice casa.
+      if (form) {
+        const next = withLanded(form, saved);
+        setForm(next);
+        setBaseline(JSON.stringify(next));
+      }
       invalidateAll();
     },
   });
@@ -252,6 +286,8 @@ export function DocumentDetail() {
               supplier: "",
               currency: "",
               total: "",
+              freight: "",
+              packaging_cost: "",
               _fc: null,
               _orig: {},
               line_items: [emptyLine()],
@@ -365,7 +401,7 @@ export function DocumentDetail() {
                 {data.discarded_lines.length > 0 && (
                   <div className="mt-3">
                     <p className="text-xs font-medium text-neutral-600">
-                      {data.discarded_lines.length} linha(s) removida(s) por não ter part number:
+                      {data.discarded_lines.length} linha(s) removida(s) da tabela de itens (sem part number, encargo ou sem preço):
                     </p>
                     <table className="mt-1.5 w-full text-left text-xs">
                       <tbody className="divide-y divide-neutral-200">
@@ -449,6 +485,8 @@ export function DocumentDetail() {
                           <FieldInput label="Total" conf={inv._fc?.total} value={inv.total} onChange={(v) => setInv(i, "total", v)} />
                           <FieldInput label="Fornecedor" value={inv.supplier} onChange={(v) => setInv(i, "supplier", v)} />
                           <FieldInput label="Exportador" value={inv.line_items[0]?.exporter ?? ""} onChange={(v) => setAllLines(i, "exporter", v)} />
+                          <FieldInput label="Frete" value={inv.freight} onChange={(v) => setInv(i, "freight", v)} />
+                          <FieldInput label="Embalagem (custo)" value={inv.packaging_cost} onChange={(v) => setInv(i, "packaging_cost", v)} />
                         </>
                       ) : (
                         <>
@@ -458,6 +496,8 @@ export function DocumentDetail() {
                           <ReadField label="Total" conf={inv._fc?.total} value={money(data.invoices[i]?.total ?? null, data.invoices[i]?.currency ?? null)} />
                           <ReadField label="Fornecedor" value={data.invoices[i]?.supplier} />
                           <ReadField label="Exportador" value={inv.line_items[0]?.exporter} />
+                          <ReadField label="Frete" value={money(data.invoices[i]?.freight ?? null, data.invoices[i]?.currency ?? null)} />
+                          <ReadField label="Embalagem (custo)" value={money(data.invoices[i]?.packaging_cost ?? null, data.invoices[i]?.currency ?? null)} />
                         </>
                       )}
                     </div>
@@ -484,11 +524,13 @@ export function DocumentDetail() {
                           <th className="py-1.5 pr-2 text-right font-medium">Peso un. (kg)</th>
                           <th className="py-1.5 pr-2 text-right font-medium">Unitário{inv.currency ? ` (${inv.currency})` : ""}</th>
                           <th className="py-1.5 pr-2 text-right font-medium">Total{inv.currency ? ` (${inv.currency})` : ""}</th>
+                          <th className="py-1.5 pr-2 text-right font-medium" title={LANDED_TITLE}>Unit. c/ encargos</th>
+                          <th className="py-1.5 pr-2 text-right font-medium" title={LANDED_TITLE}>Total c/ encargos</th>
                           <th className="py-1.5 pr-2 font-medium">PO</th>
                           <th className="py-1.5 pr-2 font-medium">Incoterm</th>
                           <th className="py-1.5 pr-2 font-medium">Origem</th>
                           <th className="py-1.5 pr-2 font-medium">Fabricante</th>
-                          <th className="py-1.5 pr-2 text-right font-medium">Frete{inv.currency ? ` (${inv.currency})` : ""}</th>
+                          <th className="py-1.5 pr-2 text-right font-medium">Frete da linha{inv.currency ? ` (${inv.currency})` : ""}</th>
                           <th className="py-1.5 pr-2 font-medium">Embalagem</th>
                           {editable && <th className="py-1.5" />}
                         </tr>
@@ -506,6 +548,8 @@ export function DocumentDetail() {
                                 <Cell><input className={inputCls} inputMode="decimal" value={l.unit_weight} onChange={(e) => setLine(i, li, "unit_weight", e.target.value)} /></Cell>
                                 <Cell><input className={`${inputCls} ${fcClass(l._fc?.unit_price)}`} title={fcTitle(l._fc?.unit_price)} inputMode="decimal" value={l.unit_price} onChange={(e) => setLine(i, li, "unit_price", e.target.value)} /></Cell>
                                 <Cell><input className={`${inputCls} ${fcClass(l._fc?.amount)}`} title={fcTitle(l._fc?.amount)} inputMode="decimal" value={l.amount} onChange={(e) => setLine(i, li, "amount", e.target.value)} /></Cell>
+                                <LandedCell value={l._landed.unit} currency={inv.currency} />
+                                <LandedCell value={l._landed.amount} currency={inv.currency} />
                                 <Cell><input className={`${inputCls} ${fcClass(l._fc?.purchase_order)}`} title={fcTitle(l._fc?.purchase_order)} value={l.purchase_order} onChange={(e) => setLine(i, li, "purchase_order", e.target.value)} /></Cell>
                                 <Cell><input className={inputCls} value={l.incoterm} onChange={(e) => setLine(i, li, "incoterm", e.target.value)} /></Cell>
                                 <Cell><input className={inputCls} value={l.country_of_origin} onChange={(e) => setLine(i, li, "country_of_origin", e.target.value)} /></Cell>
@@ -526,6 +570,8 @@ export function DocumentDetail() {
                                 <td className="py-1.5 pr-2 text-right tabular text-neutral-500">{l.unit_weight || EMPTY}</td>
                                 <td className={`py-1.5 pr-2 text-right tabular text-neutral-600 ${fcClass(l._fc?.unit_price)}`} title={fcTitle(l._fc?.unit_price)}>{money(l.unit_price || null, inv.currency || null)}</td>
                                 <td className={`py-1.5 pr-2 text-right tabular text-neutral-700 ${fcClass(l._fc?.amount)}`} title={fcTitle(l._fc?.amount)}>{money(l.amount || null, inv.currency || null)}</td>
+                                <LandedCell value={l._landed.unit} currency={inv.currency} />
+                                <LandedCell value={l._landed.amount} currency={inv.currency} />
                                 <td className={`py-1.5 pr-2 font-mono text-neutral-500 ${fcClass(l._fc?.purchase_order)}`} title={fcTitle(l._fc?.purchase_order)}>{l.purchase_order || EMPTY}</td>
                                 <td className="py-1.5 pr-2 text-neutral-500">{l.incoterm || EMPTY}</td>
                                 <td className="py-1.5 pr-2 text-neutral-500">{l.country_of_origin || EMPTY}</td>
@@ -665,6 +711,19 @@ function InvoiceConfidence({ inv }: { inv: Detail["invoices"][number] | undefine
       {flagged > 0 && <span className="ml-1 font-medium text-amber-700">· {flagged} campo(s) a conferir</span>}
       {corrected > 0 && <span className="ml-1 text-emerald-700">· {corrected} corrigido(s)</span>}
     </p>
+  );
+}
+
+const LANDED_TITLE =
+  "Frete + embalagem da invoice rateados por unidade. Calculado no servidor; recalcula ao salvar.";
+
+// Só leitura também na edição: o valor é do servidor, e um campo editável aqui
+// seria sobrescrito no próximo salvar sem aviso.
+function LandedCell({ value, currency }: { value: string; currency: string }) {
+  return (
+    <td className="py-1.5 pr-2 text-right tabular text-neutral-500" title={LANDED_TITLE}>
+      {money(value || null, currency || null)}
+    </td>
   );
 }
 

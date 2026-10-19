@@ -113,6 +113,10 @@ class Invoice(Base):
     # trazer moeda fora do padrao ISO de tres letras.
     currency: Mapped[str | None] = mapped_column(String(16))
     total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    # Encargos da fatura, rateados por unidade em unit_price_landed (0009).
+    # Ate a 0009 o structurer os calculava e o worker os descartava.
+    freight: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    packaging_cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
 
     # Confianca por campo, medida no OCR (function/pipeline/confidence.py):
     # a do cabecalho em JSONB, e os agregados da invoice inteira -- cabecalho e
@@ -158,6 +162,11 @@ class InvoicePartNumberItem(Base):
     quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     unit_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    # Unitario e total com frete e embalagem da invoice rateados por unidade
+    # (shared/landed.py). unit_price continua como impresso. Nulos quando a
+    # fatura nao tem encargo, ou a linha nao tem preco.
+    unit_price_landed: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    amount_landed: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     purchase_order: Mapped[str | None] = mapped_column(String(128), index=True)
     # Text, nao String(n): a 0003 alargou os seis campos abaixo depois de um
     # incoterm real estourar VARCHAR(16). Campo livre de documento nao tem

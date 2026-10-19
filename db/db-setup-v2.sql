@@ -1,4 +1,4 @@
--- db-setup-v2.sql -- schema achatado, head 0008.
+-- db-setup-v2.sql -- schema achatado, head 0009.
 --
 -- GERADO, nao editar a mao: sai de 'alembic upgrade base:head --sql' com os
 -- tipos finais aplicados direto no CREATE, em vez de CREATE + ALTER.
@@ -65,6 +65,8 @@ CREATE TABLE invoices (
     mean_field_confidence FLOAT, 
     flagged_fields INTEGER, 
     corrected_fields INTEGER, 
+    freight NUMERIC(18, 2), 
+    packaging_cost NUMERIC(18, 2), 
     PRIMARY KEY (id), 
     FOREIGN KEY(document_id) REFERENCES documents (id) ON DELETE CASCADE, 
     CONSTRAINT fk_invoices_duplicate_of_id FOREIGN KEY(duplicate_of_id) REFERENCES invoices (id) ON DELETE SET NULL
@@ -97,6 +99,8 @@ CREATE TABLE invoice_part_number_items (
     field_confidence JSONB, 
     unit TEXT, 
     unit_weight NUMERIC(18, 5), 
+    unit_price_landed NUMERIC(18, 4), 
+    amount_landed NUMERIC(18, 2), 
     PRIMARY KEY (id), 
     FOREIGN KEY(invoice_id) REFERENCES invoices (id) ON DELETE CASCADE
 );
@@ -144,6 +148,6 @@ CREATE TABLE serial_rules (
 
 INSERT INTO serial_rules (id) VALUES (1);
 
-INSERT INTO alembic_version (version_num) VALUES ('0008');
+INSERT INTO alembic_version (version_num) VALUES ('0009');
 
 COMMIT;

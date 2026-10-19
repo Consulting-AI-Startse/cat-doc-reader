@@ -40,6 +40,10 @@ export interface LineItem {
   quantity: string | number | null;
   unit_price: string | number | null;
   amount: string | number | null;
+  /** Unitário e total com frete + embalagem da invoice rateados por unidade.
+   *  Calculados no servidor (extração e PATCH); nulos sem encargo. Migração 0009. */
+  unit_price_landed: string | number | null;
+  amount_landed: string | number | null;
   purchase_order: string | null;
   incoterm: string | null;
   country_of_origin: string | null;
@@ -72,6 +76,9 @@ export interface Invoice {
   supplier: string | null;
   currency: string | null;
   total: string | number | null;
+  /** Encargos da fatura, rateados em unit_price_landed. Nulos antes da 0009. */
+  freight: string | number | null;
+  packaging_cost: string | number | null;
   /** Cabeçalho (invoice_number, total). Os agregados cobrem cabeçalho e linhas. */
   field_confidence: FieldConfidenceMap | null;
   min_field_confidence: number | null;
@@ -224,6 +231,8 @@ export interface InvoiceInput {
   supplier: string | null;
   currency: string | null;
   total: string | null;
+  freight: string | null;
+  packaging_cost: string | null;
   field_confidence: FieldConfidenceMap | null;
   line_items: LineInput[];
 }
