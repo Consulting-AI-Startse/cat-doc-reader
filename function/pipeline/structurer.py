@@ -7,6 +7,7 @@ from typing import Any
 
 from pipeline import confidence as fieldconf
 from pipeline import pages as pagekinds
+from shared.landed import apportion
 
 logger = logging.getLogger("structurer")
 
@@ -25,6 +26,11 @@ CODE_RE = re.compile(r"^[0-9A-Z][0-9A-Z\-/._]{2,29}$")
 # '663-7238~00', '6064986-07', '364-9717/01'. Nao faz parte do numero.
 PART_NUMBER_SUFFIX_RE = re.compile(r"^(?P<base>.+?)(?P<suffix>[~/][0-9A-Z]{1,3}|-[0-9]{2})$")
 CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+_CAT_PREFIX_RE = re.compile(r"^CAT[\s:#-]+(\S+)$", re.IGNORECASE)
+# Separador de milhar de verdade: primeiro grupo de 1 a 3 digitos SEM zero a
+# esquerda, e os demais de tres em tres. '0.162' e '5700,000' nao agrupam.
+_GROUPED_DOT_RE = re.compile(r"^[1-9][0-9]{0,2}(?:\.[0-9]{3})+$")
+_GROUPED_COMMA_RE = re.compile(r"^[1-9][0-9]{0,2}(?:,[0-9]{3})+$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # Confianca imposta quando qualquer validacao falha. Precisa ficar abaixo de
@@ -95,6 +101,11 @@ HARD RULES — these are the errors that have actually occurred:
    (rule 6), when the document bills one ("plus package", "packing charge", "embalagem"). Report it
    ONCE, at invoice level. "packaging" is a different field and stays the
    physical description of the packing ("1 PALLET").
+
+   A row that bills freight, logistics or packaging ("Packaging - Sales",
+   "Inland Freight charge", "Logistic Charges") is a charge, not a line
+   item: put its value in "freight" or "packaging_cost", never in
+   "line_items".
 
 5. TOTAL. "total" is the invoice total as printed on the document, including
    freight. Read it; do not compute it.
@@ -353,10 +364,18 @@ def _num(v):
         else:                              # 29,579.82 -> decimal e o ponto
             t = t.replace(",", "")
     elif last_comma > -1:
-        # Uma virgula so: decimal se sobrarem 1 ou 2 casas, senao milhar.
-        t = t.replace(",", "." if len(t) - last_comma - 1 in (1, 2) else "")
-    elif last_dot > -1 and len(t) - last_dot - 1 == 3 and len(t.replace(".", "")) > 3:
-        # 1.234 sem centavos e milhar europeu. '108.08' tem 2 casas, nao entra.
+        # So virgula: milhar quando agrupa de tres em tres ('1,234', '12,345,678'),
+        # decimal no resto. A regra antiga ("tres casas e milhar") lia o
+        # '5700,000' da Graziano como 5.700.000 e o '0,162' como 162.
+        if t.count(",") > 1 or _GROUPED_COMMA_RE.match(t):
+            t = t.replace(",", "")
+        else:
+            t = t.replace(",", ".")
+    elif last_dot > -1 and (t.count(".") > 1 or _GROUPED_DOT_RE.match(t)):
+        # '1.234' sem centavos e milhar europeu; '108.08' nao agrupa e fica.
+        # Na fatura Freudenberg (380_Commercial Invoice (3)) o preco impresso e
+        # '1,62 / 10'; o modelo derivou '0.162', a regra antiga leu 162 e a
+        # tela mostrou o unitario 1000x maior. Zero a esquerda nao e milhar.
         t = t.replace(".", "")
 
     try:
@@ -391,6 +410,12 @@ def _classify_part_number(pn, content: str):
         return None, None, None, "missing", "part_number ausente"
 
     text = str(pn).strip()
+    # A AutoMotionShade imprime 'CAT 657-3755' na coluna de item: o prefixo e
+    # da marca, nao do numero. Sem tirar, a unica peca da fatura nao tinha
+    # forma de codigo e saia de line_items junto com a linha de embalagem.
+    m = _CAT_PREFIX_RE.match(text)
+    if m and PART_NUMBER_RE.match(_split_part_number(m.group(1))[0]):
+        text = m.group(1)
     base, suffix = _split_part_number(text)
 
     if PART_NUMBER_RE.match(base):
@@ -439,32 +464,21 @@ def _invoice_supplier(kept: list):
 
 
 def _landed(kept: list, extra):
-    """Rateia encargos de nivel de fatura por unidade. Nao sobrescreve nada.
+    """Rateia frete + embalagem da fatura por unidade, em unit_price_landed e
+    amount_landed. Nao sobrescreve unit_price, que segue como impresso.
 
-    O cliente soma a embalagem ao preco unitario: na fatura CD970373103 sao
-    90 x 388,46 = 34.961,40 mais 603,00 de embalagem, e o gabarito pede
-    395,16 e 35.564,40 -- ou seja 603/90 por unidade. So dois documentos de
-    28 trazem esse encargo, entao isto e um ramo condicional, nao uma regra.
-    O divisor (unidades, peso ou valor) ainda precisa de confirmacao do
-    cliente; com uma linha unica os tres dao o mesmo resultado.
+    A conta mora em shared/landed.py porque o backend refaz o rateio quando o
+    revisor corrige unitario, frete ou embalagem. Devolve (por unidade,
+    unidades no divisor), ou (None, 0) quando nada foi rateado.
     """
-    total_qty = 0.0
-    for li in kept:
-        q = _num(li.get("quantity"))
-        if q:
-            total_qty += q
-    if not extra or total_qty <= 0:
-        return None
-    per_unit = extra / total_qty
-    for li in kept:
-        unit = _num(li.get("unit_price"))
-        qty = _num(li.get("quantity"))
-        if unit is None:
-            continue
-        li["unit_price_landed"] = "%.2f" % (unit + per_unit)
-        if qty is not None:
-            li["amount_landed"] = "%.2f" % ((unit + per_unit) * qty)
-    return per_unit
+    pairs = [(_num(li.get("quantity")), _num(li.get("unit_price"))) for li in kept]
+    per_unit, values = apportion(pairs, extra)
+    if per_unit is None:
+        return None, 0
+    for li, value in zip(kept, values):
+        if value is not None:
+            li["unit_price_landed"], li["amount_landed"] = value
+    return per_unit, sum(q for (q, u), v in zip(pairs, values) if v is not None)
 
 
 # Fator para kg. O 'Peso Unitario' do gabarito do cliente e em kg (3649717 ->
@@ -510,6 +524,79 @@ def _close(a, b) -> bool:
     if a is None or b is None:
         return False
     return abs(a - b) <= max(TOLERANCE_ABS, TOLERANCE_REL * max(abs(a), abs(b)))
+
+
+# Preco impresso por N unidades: a Freudenberg imprime '1,62 / 10' para uma
+# linha de 5 pecas que vale 0,81. So os multiplos que aparecem em fatura.
+_PRICE_PER_UNITS = (10, 100, 1000)
+
+
+def _derive_line_numbers(qty, unit, amount):
+    """(unit, amount, campo derivado ou None, motivo ou None).
+
+    Corrige a linha quando a propria conta mostra qual numero esta errado, e
+    so entao. Quem julga o resultado e a soma das linhas contra o total
+    impresso, que usa o amount -- por isso o amount impresso e a ancora e o
+    unitario e que se ajusta, nunca o contrario.
+
+    O caso que motivou: a CIV 3YNDJ imprime '2 | 6522600 | 36,826.00' numa
+    coluna so de preco, que e o valor da linha. O modelo copiou 36826 no
+    unitario, a conferencia acusava 2 x 36826 != 36826 mas o valor seguia
+    gravado -- e a expansao por serial, que faz amount = unit_price em cada
+    registro, gravava 73.652 para uma linha de 36.826.
+    """
+    if qty is None or qty <= 0:
+        return unit, amount, None, None
+    if amount is None and unit is not None:
+        return unit, qty * unit, "amount", (
+            "amount ausente; derivado de %g x %g" % (qty, unit))
+    if unit is None and amount is not None:
+        # A regra 3 do prompt pede isto ao modelo; aqui garante.
+        return amount / qty, amount, "unit_price", (
+            "unit_price ausente; derivado de %g / %g" % (amount, qty))
+    if unit is None or _close(qty * unit, amount):
+        return unit, amount, None, None
+    if qty > 1 and _close(unit, amount):
+        return amount / qty, amount, "unit_price", (
+            "unit_price impresso %g e o valor da linha (%g x %g != %g); gravado "
+            "amount / quantidade = %g" % (unit, qty, unit, amount, amount / qty))
+    for n in _PRICE_PER_UNITS:
+        if _close(unit, amount / qty * n):
+            return amount / qty, amount, "unit_price", (
+                "unit_price impresso %g e preco por %d unidades (%g x %g / %d = %g); "
+                "gravado amount / quantidade = %g" % (unit, n, qty, unit, n, amount, amount / qty))
+    return unit, amount, None, None
+
+
+# Linha que e encargo, nao peca. Sem fronteira de palavra em PACKAGING de
+# proposito: a AutoMotionShade imprime '_PackagingSale', e '_' conta como letra
+# para o \b. Os termos curtos levam fronteira; 'PACKING' fica de fora, porque
+# 'PACKING RING' e peca.
+_PACKAGING_RE = re.compile(
+    r"PACKAGING|EMBALAGE|EMBALLAGE|EMBALAJE|IMBALLAGGIO|VERPACKUNG|\bIMBALLO\b|"
+    r"\bCRAT(?:E|ES|ING)\b|\bPALLETS?\b|\bPALETES?\b|\bCAIXAS?\b|"
+    r"\bWOODEN\s+(?:BOX|CASE)S?\b|\bCASSA\b", re.IGNORECASE)
+_FREIGHT_RE = re.compile(
+    r"FREIGHT|\bFRETE\b|\bSHIPPING\b|\bTRANSPORT(?:ATION)?\b|\bCARRIAGE\b|"
+    r"\bLOGISTICS?\s+CHARGES?\b|\bTRASPORTO\b|\bFRACHT\b", re.IGNORECASE)
+
+
+def _charge_kind(li: dict, status: str) -> str | None:
+    """'packaging_cost', 'freight' ou None. Linha com part number CAT nunca e
+    encargo. Codigo de fornecedor ('other_code') so conta pelo proprio codigo
+    ('PACKAGING'), nunca pela descricao: '15.1301.466 PACKING RING' e peca, e
+    mover peca para encargo nao quebra a soma -- o erro seria silencioso."""
+    if status in ("not_a_code", "missing"):
+        text = "%s %s" % (li.get("part_number") or "", li.get("description") or "")
+    elif status == "other_code":
+        text = str(li.get("part_number") or "")
+    else:
+        return None
+    if _PACKAGING_RE.search(text):
+        return "packaging_cost"
+    if _FREIGHT_RE.search(text):
+        return "freight"
+    return None
 
 
 def candidate_part_numbers(content: str) -> list[str]:
@@ -715,7 +802,7 @@ def _expand_serials(tag: str, li: dict, exige_serial: bool):
             li,
             serial_number=serial,
             quantity="1",
-            amount=_s(li.get("unit_price")) if unit is not None else li.get("amount"),
+            amount=li.get("unit_price") if unit is not None else li.get("amount"),
         ))
     return registros, avisos, notas
 
@@ -752,20 +839,34 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None, in
     itens de dois dos quatro documentos de teste, porque '674-8657' e part
     number legitimo -- entao aqui o criterio e a classificacao, e o dado fica.
 
+    Tres coisas saem de line_items:
+      - o que nao tem forma de codigo ('I/C Material') ou esta vazio;
+      - encargo com valor ('Packaging - Sales 86.00', 'I/C freight & ship'):
+        o valor vai para packaging_cost / freight da invoice, e a soma
+        continua fechando com o impresso;
+      - codigo de fornecedor sem preco nem valor: a nota '0V3456 END USE' das
+        CIVs de motor e as caixas de madeira da Carraro (448034, 448035). Se
+        for embalagem, a descricao vai para o campo packaging dos itens.
+
     O descarte acontece ANTES da soma, de proposito. Na fatura de motor
     93872204 a nota 'I/C Material 0V3456 / END USE' vinha como item com o preco
     do motor e estourava o total; sem ela a soma fecha com o impresso. E a
     reciproca e a rede de seguranca do filtro: se ele derrubar uma linha
     legitima, a soma para de fechar e o documento vai para revisao sozinho.
+
+    Devolve (itens, problemas, notas, soma, descartadas, encargos).
     """
     kept = []
     descartadas = []
     issues = []
     notas = []
     running = 0.0
+    charges = {"freight": 0.0, "packaging_cost": 0.0}
+    packaging_texts = []
     exigem_serial = exigem_serial or set()
 
     for n, li in enumerate(raw_lines):
+        line_tag = "%s.line[%d]" % (tag, n)
         printed, normalised, suffix, status, note = _classify_part_number(
             li.get("part_number"), content
         )
@@ -776,56 +877,81 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None, in
             part_number_suffix=suffix,
             part_number_status=status,
         )
-        if status in _NAO_E_ITEM:
-            descartadas.append(dict(li, discard_reason=note or "sem part number"))
-            continue
-        if note:
-            issues.append("%s.line[%d]: %s" % (tag, n, note))
-
-        # Pontuada a linha IMPRESSA, antes de _num e da expansao: e o valor
-        # como impresso ('35.564,40') que se acha no texto do OCR.
-        fc = None
-        if index is not None:
-            fc = fieldconf.line_confidence(li, content, index, _num)
-            for field, entry in fc.items():
-                aviso = fieldconf.describe("%s.line[%d]" % (tag, n), field, li.get(field), entry)
-                if aviso:
-                    issues.append(aviso)
-
         qty = _num(li.get("quantity"))
         unit = _num(li.get("unit_price"))
         amount = _num(li.get("amount"))
+        full_text = "%s %s" % (li.get("part_number") or "", li.get("description") or "")
+
+        kind = _charge_kind(li, status)
+        value = amount if amount is not None else (
+            qty * unit if qty is not None and unit is not None else None)
+        if kind and value:
+            charges[kind] += value
+            descartadas.append(dict(li, discard_reason=(
+                "encargo de %.2f movido para %s da invoice" % (value, kind))))
+            continue
+
+        sem_valor = status == "other_code" and unit is None and amount is None
+        if status in _NAO_E_ITEM or sem_valor:
+            if sem_valor:
+                motivo = "codigo '%s' sem preco nem valor; nao e item de fatura" % printed
+            else:
+                motivo = note or "sem part number"
+            descartadas.append(dict(li, discard_reason=motivo))
+            if _PACKAGING_RE.search(full_text):
+                packaging_texts.append(str(li.get("description") or printed or "").strip())
+            continue
+        if note:
+            issues.append("%s: %s" % (line_tag, note))
+
+        # A linha IMPRESSA e a que se pontua: e o valor como impresso
+        # ('35.564,40') que se acha no texto do OCR. A derivada nao foi lida.
+        printed_li = li
+        unit, amount, derived, why = _derive_line_numbers(qty, unit, amount)
+        if derived:
+            li = dict(li, **{derived: unit if derived == "unit_price" else amount})
+            notas.append("%s: %s" % (line_tag, why))
+
+        fc = None
+        if index is not None:
+            fc = fieldconf.line_confidence(printed_li, content, index, _num)
+            if derived:
+                fc[derived] = fieldconf.derived()
+            for field, entry in fc.items():
+                aviso = fieldconf.describe(line_tag, field, printed_li.get(field), entry)
+                if aviso:
+                    issues.append(aviso)
 
         if amount is None:
-            issues.append("%s.line[%d]: amount ausente" % (tag, n))
+            issues.append("%s: amount ausente" % line_tag)
         else:
             running += amount
 
         if unit is None:
-            issues.append("%s.line[%d]: unit_price ausente" % (tag, n))
+            issues.append("%s: unit_price ausente" % line_tag)
         elif qty is not None and amount is not None and not _close(qty * unit, amount):
             issues.append(
-                "%s.line[%d]: %s x %s = %.2f, mas amount = %.2f"
-                % (tag, n, qty, unit, qty * unit, amount)
+                "%s: %s x %s = %.2f, mas amount = %.2f"
+                % (line_tag, qty, unit, qty * unit, amount)
             )
 
-        peso, nota_peso = _unit_weight("%s.line[%d]" % (tag, n), li)
+        peso, nota_peso = _unit_weight(line_tag, li)
         li["unit_weight"] = peso
         if nota_peso:
             notas.append(nota_peso)
 
-        # A expansao vem depois da conferencia aritmetica da linha impressa:
-        # conferir os registros expandidos seria comparar 1 x unit_price com
-        # ele mesmo, o que nao testa nada.
+        # A expansao vem depois da derivacao e da conferencia da linha
+        # impressa: ela copia unit_price para o amount de cada registro, entao
+        # um unitario errado aqui viraria N registros errados.
         registros, avisos, notas_serial = _expand_serials(
-            "%s.line[%d]" % (tag, n), li, normalised in exigem_serial
+            line_tag, li, normalised in exigem_serial
         )
         issues.extend(avisos)
         notas.extend(notas_serial)
         if fc is not None:
             for registro in registros:
                 registro["field_confidence"] = _record_confidence(
-                    fc, registro, content, index, "%s.line[%d]" % (tag, n), issues)
+                    fc, registro, content, index, line_tag, issues)
         kept.extend(registros)
 
     if descartadas:
@@ -834,12 +960,45 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None, in
         # Tratar o descarte como problema mandaria toda CIV de motor para
         # revisao, porque todas trazem a nota 'END USE'.
         notas.append(
-            "%s: %d linha(s) sem part number descartada(s): %s"
+            "%s: %d linha(s) fora de line_items (sem part number, encargo ou "
+            "sem preco): %s"
             % (tag, len(descartadas),
                "; ".join(str(d.get("part_number") or "(vazio)") for d in descartadas))
         )
 
-    return kept, issues, notas, running, descartadas
+    if packaging_texts:
+        texto = "; ".join(t for t in dict.fromkeys(packaging_texts) if t)
+        preenchidas = 0
+        for li in kept:
+            if texto and not li.get("packaging"):
+                li["packaging"] = texto
+                preenchidas += 1
+        if preenchidas:
+            notas.append("%s: embalagem '%s', lida de linha(s) sem preco, copiada "
+                         "para %d item(ns)" % (tag, texto, preenchidas))
+
+    return kept, issues, notas, running, descartadas, charges
+
+
+def _merge_charge(tag: str, field: str, header, from_lines: float, issues: list, notas: list):
+    """Encargo da invoice depois de somar o que veio de linha de encargo.
+
+    O modelo as vezes reporta o mesmo valor no cabecalho e como linha: igual,
+    conta uma vez. Diferente, os dois sao somados e o revisor confere -- e a
+    conferencia do total, que vem logo depois, diz se a soma estava certa.
+    """
+    if not from_lines:
+        return header
+    if header is None:
+        notas.append("%s: %s %.2f veio de linha(s) de encargo" % (tag, field, from_lines))
+        return from_lines
+    if _close(header, from_lines):
+        notas.append("%s: %s %.2f ja estava no cabecalho; a linha de encargo nao foi "
+                     "somada de novo" % (tag, field, header))
+        return header
+    issues.append("%s: %s %.2f no cabecalho e %.2f em linha(s) de encargo; gravada a "
+                  "soma, conferir" % (tag, field, header, from_lines))
+    return header + from_lines
 
 
 def _page_kind_notes(kinds: dict | None) -> tuple[list[str], list[str]]:
@@ -967,7 +1126,7 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
         tag = "invoice[%d]" % index
 
         raw_lines = [li for li in (inv.get("line_items") or []) if isinstance(li, dict)]
-        kept, line_issues, line_notes, running, descartadas = _check_lines(
+        kept, line_issues, line_notes, running, descartadas, charges = _check_lines(
             tag, raw_lines, content, exigem_serial, word_index)
         issues.extend(line_issues)
         # Prompt e pedido, nao contrato: se o modelo tirou uma linha de pagina
@@ -1006,9 +1165,11 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
         if currency and not CURRENCY_RE.match(str(currency).strip().upper()):
             issues.append("%s: currency '%s' invalida" % (tag, currency))
 
-        freight = _num(inv.get("freight"))
+        freight = _merge_charge(tag, "freight", _num(inv.get("freight")),
+                                charges["freight"], issues, notas)
         reported = _num(inv.get("total"))
-        packaging_cost = _num(inv.get("packaging_cost"))
+        packaging_cost = _merge_charge(tag, "packaging_cost", _num(inv.get("packaging_cost")),
+                                       charges["packaging_cost"], issues, notas)
         # A embalagem entra na conferencia porque o total impresso a inclui: na
         # CD970373103 sao 90 x 388,46 = 34.961,40 mais 603,00, e o documento
         # imprime 35.564,40. Enquanto ela ficava de fora, TODA fatura com
@@ -1044,13 +1205,13 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
                     issues.append(aviso)
 
         extra = (packaging_cost or 0.0) + (freight or 0.0)
-        per_unit = _landed(kept, extra)
+        per_unit, units = _landed(kept, extra)
         notas.extend(line_notes)
         if per_unit:
             notas.append(
-                "%s: encargos %.2f rateados a %.4f por unidade em "
-                "unit_price_landed (unit_price segue como impresso)"
-                % (tag, extra, per_unit)
+                "%s: encargos %.2f rateados a %.4f por unidade, sobre %g unidade(s) "
+                "com preco, em unit_price_landed (unit_price segue como impresso)"
+                % (tag, extra, per_unit, units)
             )
 
         line_items = []
@@ -1091,8 +1252,8 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
             "currency": inv.get("currency"),
             # Emitidos para que unit_price_landed seja auditavel: sem eles nao
             # se sabe de que encargo veio o rateio.
-            "freight": _snum(inv.get("freight")),
-            "packaging_cost": _snum(inv.get("packaging_cost")),
+            "freight": _snum(freight),
+            "packaging_cost": _snum(packaging_cost),
             "total": total,
             "field_confidence": header_fc,
             "line_items": line_items,

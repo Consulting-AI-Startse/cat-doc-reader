@@ -324,7 +324,7 @@ check("a linha descartada e preservada", len(inv["discarded_lines"]), 1)
 check("com o motivo junto",
       "nao tem forma de codigo" in (inv["discarded_lines"][0]["discard_reason"] or ""), True)
 check("o descarte e anunciado como NOTA",
-      any("sem part number descartada" in v for v in r["notes"]), True)
+      any("fora de line_items" in v for v in r["notes"]), True)
 # Descarte nao e defeito: se estiver errado, quem acusa e a aritmetica. Tratar
 # como defeito mandaria toda CIV de motor para revisao, porque todas trazem a
 # nota 'END USE'.
@@ -354,10 +354,16 @@ check("e nao foi descartado", len(r["invoices"][0]["discarded_lines"]), 0)
 print("=== 10d. o cao de guarda: descarte errado quebra a soma ===")
 # Se o filtro derrubar uma linha legitima, a soma para de fechar e o documento
 # vai para revisao sozinho. E o que torna o filtro auditavel em vez de cego.
-frete = {"invoices": [{"invoice_number": "X", "total": "110.00", "line_items": [
+#
+# INVERSAO DELIBERADA (19/10, leva 14). O exemplo daqui era uma linha 'FRETE'
+# sem codigo -- e frete e justamente o que a leva 14 passou a mover para o
+# encargo da invoice, com a soma fechando. A rede de seguranca continua valendo
+# para o que nao e encargo; o frete virou o teste 14f.
+perdida = {"invoices": [{"invoice_number": "X", "total": "110.00", "line_items": [
     {"part_number": "463-8344", "quantity": "1", "unit_price": "100.00", "amount": "100.00"},
-    {"part_number": None, "description": "FRETE", "amount": "10.00"}]}], "confidence": 0.95}
-r = _normalise(frete, 0.95, content="463-8344")
+    {"part_number": None, "description": "PECA SEM CODIGO", "amount": "10.00"}]}],
+    "confidence": 0.95}
+r = _normalise(perdida, 0.95, content="463-8344")
 check("a linha sem codigo saiu", len(r["invoices"][0]["discarded_lines"]), 1)
 check("e a aritmetica acusa", any("nao fecha" in v for v in r["validation"]), True)
 
@@ -447,6 +453,112 @@ check("regra 12 proibe item de pagina de embarque", "never create an invoice or 
 check("mas deixa usar o peso", "unit_weight" in low, True)
 check("o bloco de paginas entra no user message", "{page_notes}" in _USER_TEMPLATE, True)
 check("e fica vazio sem embarque", _page_notes(classify_pages("UNIT PRICE 10")), "")
+
+print("=== 14a. CIV 3YNDJ: valor da linha copiado no unitario, com serial ===")
+# Relatorio da CAT (02/10): '2 | 6522600 | 36,826.00' numa coluna so de preco.
+# O modelo copiou 36826 no unitario, a conferencia so acusava, e a expansao
+# por serial gravava dois registros de 36.826 -- 73.652 numa linha de 36.826.
+# E o frete de 161,99 saia rateado por 3 unidades, contando a nota 0V3456.
+ynd = {"invoices": [{"invoice_number": "AE28 518944", "total": "36,987.99",
+    "freight": "161.99", "line_items": [
+        {"part_number": "6522600", "description": "CAPTIVE: 6522600-C9",
+         "quantity": "2", "unit_price": "36,826.00", "amount": "36,826.00",
+         "serial_numbers": ["XWE41699", "XWE41700"]},
+        {"part_number": "I/C Material", "quantity": "1",
+         "unit_price": "18,413.00", "amount": "18,413.00"},
+        {"part_number": "0V3456", "description": "END USE: CAPTIVE ENGINE",
+         "quantity": "1"}]}], "confidence": 0.95}
+r = _normalise(ynd, 0.95, content="6522600 XWE41699 XWE41700 0V3456",
+               exigem_serial={"6522600"})
+inv = r["invoices"][0]
+check("dois registros, um por serial", len(inv["line_items"]), 2)
+check("unitario = valor da linha / 2", {l["unit_price"] for l in inv["line_items"]}, {"18413"})
+check("e cada registro vale 18.413", {l["amount"] for l in inv["line_items"]}, {"18413"})
+check("o total impresso fecha", any("nao fecha" in v for v in r["validation"]), False)
+check("sem a acusacao 2 x 36826", any("73652" in v for v in r["validation"]), False)
+check("a correcao vira nota auditavel",
+      any("e o valor da linha" in n for n in r["notes"]), True)
+check("0V3456 sai: codigo sem preco nem valor",
+      sorted(d["part_number"] for d in inv["discarded_lines"]), ["0V3456", "I/C Material"])
+check("frete rateado por 2 unidades, nao 3",
+      any("80.9950 por unidade, sobre 2 unidade" in n for n in r["notes"]), True)
+check("unitario com encargos", {l["unit_price_landed"] for l in inv["line_items"]}, {"18493.99"})
+check("sem problema nenhum", r["validation"], [])
+
+print("=== 14b. Freudenberg: preco impresso por 10 unidades ===")
+# '1,62 / 10', quantidade 5, valor da linha 0,81. A tela mostrou 162.
+fst = {"invoices": [{"invoice_number": "2660154740", "total": "0,81", "line_items": [
+    {"part_number": "081-3814", "quantity": "5", "unit_price": "1,62", "amount": "0,81"}]}],
+    "confidence": 0.95}
+r = _normalise(fst, 0.95, content="081-3814 1,62 / 10")
+check("unitario de uma peca", r["invoices"][0]["line_items"][0]["unit_price"], "0.162")
+check("explicado na nota", any("preco por 10 unidades" in n for n in r["notes"]), True)
+check("e nao e problema", r["validation"], [])
+fst["invoices"][0]["line_items"][0]["unit_price"] = "0.162"
+r = _normalise(fst, 0.95, content="081-3814 1,62 / 10")
+check("o '0.162' que o modelo derivou e 0,162",
+      r["invoices"][0]["line_items"][0]["unit_price"], "0.162")
+check("e fecha sem nota de derivacao", r["validation"], [])
+
+print("=== 14c. AutoMotionShade: linha de embalagem vira encargo ===")
+ams = {"invoices": [{"invoice_number": "IN260306005", "total": "960.00", "line_items": [
+    {"part_number": "CAT 657-3755", "description": "AMS 506 Single Roller Shade",
+     "quantity": "40", "unit_price": "21.85", "amount": "874.00"},
+    {"part_number": "_PackagingSale", "description": "Packaging - Sales",
+     "quantity": "40", "unit_price": "2.15", "amount": "86.00"}]}], "confidence": 0.95}
+r = _normalise(ams, 0.95, content="CAT 657-3755 _PackagingSale")
+inv = r["invoices"][0]
+check("a peca fica, sem o prefixo CAT", [l["part_number"] for l in inv["line_items"]], ["657-3755"])
+check("embalagem foi para o encargo", inv["packaging_cost"], "86")
+check("a linha de embalagem esta nas descartadas",
+      "encargo" in inv["discarded_lines"][0]["discard_reason"], True)
+check("e o total fecha", any("nao fecha" in v for v in r["validation"]), False)
+check("unitario com encargos 21,85 + 86/40", inv["line_items"][0]["unit_price_landed"], "24.00")
+
+print("=== 14d. embalagem no cabecalho E em linha conta uma vez ===")
+ams["invoices"][0]["packaging_cost"] = "86.00"
+r = _normalise(ams, 0.95, content="CAT 657-3755 _PackagingSale")
+check("86, nao 172", r["invoices"][0]["packaging_cost"], "86")
+check("e o total fecha", any("nao fecha" in v for v in r["validation"]), False)
+check("nota diz que ja estava no cabecalho",
+      any("ja estava no cabecalho" in n for n in r["notes"]), True)
+
+print("=== 14e. Carraro: caixas de madeira sem preco viram embalagem ===")
+carraro = {"invoices": [{"invoice_number": "1014601200", "total": "9.683,60",
+    "packaging_cost": "158,30", "line_items": [
+        {"part_number": "148409", "description": "RIGIDA EIXO 28.38M",
+         "quantity": "5", "unit_price": "1.905,06", "amount": "9.525,30"},
+        {"part_number": "448034", "description": "CAIXA DE MADEIRA L2100 X W800 X H500mm",
+         "quantity": "1"},
+        {"part_number": "448035", "description": "CAIXA DE MADEIRA L2100 X W1250 X H500mm",
+         "quantity": "2"}]}], "confidence": 0.95}
+r = _normalise(carraro, 0.95, content="148409 448034 448035")
+inv = r["invoices"][0]
+check("so a peca fica", [l["part_number"] for l in inv["line_items"]], ["148409"])
+check("as caixas sao descartadas com motivo",
+      [("sem preco nem valor" in d["discard_reason"]) for d in inv["discarded_lines"]], [True, True])
+check("e a descricao vira a embalagem do item",
+      inv["line_items"][0]["packaging"],
+      "CAIXA DE MADEIRA L2100 X W800 X H500mm; CAIXA DE MADEIRA L2100 X W1250 X H500mm")
+check("o total fecha com a embalagem", any("nao fecha" in v for v in r["validation"]), False)
+
+print("=== 14f. linha FRETE sem codigo vai para o frete da invoice ===")
+frete = {"invoices": [{"invoice_number": "X", "total": "110.00", "line_items": [
+    {"part_number": "463-8344", "quantity": "1", "unit_price": "100.00", "amount": "100.00"},
+    {"part_number": None, "description": "FRETE", "amount": "10.00"}]}], "confidence": 0.95}
+r = _normalise(frete, 0.95, content="463-8344")
+check("frete da invoice", r["invoices"][0]["freight"], "10")
+check("e a soma fecha", any("nao fecha" in v for v in r["validation"]), False)
+
+print("=== 14g. peca de fornecedor chamada PACKING continua peca ===")
+# Mover peca para encargo nao quebra a soma: o erro seria silencioso. Por isso
+# codigo de fornecedor so vira encargo pelo proprio codigo, nunca pela descricao.
+anel = {"invoices": [{"invoice_number": "739 /01", "total": "20.00", "line_items": [
+    {"part_number": "15.1301.466", "description": "PACKING RING PALLET",
+     "quantity": "1", "unit_price": "20.00", "amount": "20.00"}]}], "confidence": 0.95}
+r = _normalise(anel, 0.95, content="15.1301.466")
+check("o item fica", len(r["invoices"][0]["line_items"]), 1)
+check("e nada vira encargo", r["invoices"][0]["packaging_cost"], None)
 
 print()
 if falhas:
