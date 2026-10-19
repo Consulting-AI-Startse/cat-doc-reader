@@ -16,7 +16,7 @@ Esforço: **XS** < 1h · **S** ~meio dia · **M** ~1–2 dias · **L** ~1 semana
 | ~~7~~ | ~~Classificação invoice × packing list~~ | M | alto | **feito** |
 | ~~8~~ | ~~Relatório de confiança por fornecedor~~ | M | médio | **feito** |
 | ~~9~~ | ~~Métricas de processamento por período~~ | M | médio | **feito** |
-| 10 | Aritmética da linha, linhas de encargo, frete/embalagem gravados | M | **muito alto** | — |
+| ~~10~~ | ~~Aritmética da linha, linhas de encargo, frete/embalagem gravados~~ | M | **muito alto** | **feito** (leva 14) |
 | 11 | Part number pela lista de PN: fornecedor × CAT, "fora da lista" na tela | M | **muito alto** | 3 |
 | 12 | Documento com muitas faturas: fatura que falta | ? | alto | **bloqueado** (PDF 2026RFM04632) |
 | — | `Invoice Type`, `Import Process`, `CSAR`, `PFO`, `##` | ? | ? | **bloqueado** |
@@ -499,7 +499,7 @@ A CAT testou em duas etapas (até 14/09 e a partir de 02/10) e mandou 13
 slides de erros. A análise completa, erro a erro, com o que já foi corrigido e
 o que falta, está em `docs/relatorio-testes-cat-2026-10.md`. Resumo:
 
-- **10 — Aritmética da linha e encargos (M).** O modelo copia o valor
+- **10 — Aritmética da linha e encargos (M) — feito em 19/10, leva 14.** O modelo copia o valor
   estendido no unitário (`2 × 6522600 = 36.826` sai com unitário 36.826, e a
   expansão por serial grava 73.652); `_num("0.162")` devolve 162; linha de
   encargo ("Packaging - Sales 86.00") ou de nota sem preço (0V3456 END USE,
@@ -509,6 +509,9 @@ o que falta, está em `docs/relatorio-testes-cat-2026-10.md`. Resumo:
   Correção: derivar o unitário de `amount / qty` antes da expansão, consertar
   o `_num`, mover encargo de linha para `packaging_cost` / `freight`, descartar
   `other_code` sem preço nem valor, migração `0009` e colunas na tela.
+  De carona, do mesmo relatório: a vírgula tinha o defeito do ponto
+  (`5700,000` da Graziano lido como 5.700.000), e o `CAT 657-3755` da
+  AutoMotionShade era descartado por não ter forma de código.
 - **11 — Part number pela lista (M, depende do 3).** "Part number errado,
   MAIORIA": a linha imprime código do fornecedor e código do cliente
   (`148409` × `2396739`, `MN447750-31914C` × `290-2789`) e o modelo escolhe o
