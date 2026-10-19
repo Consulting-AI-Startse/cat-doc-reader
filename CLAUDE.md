@@ -143,7 +143,7 @@ preciso ter instalado para isto rodar", e ele só serve se estiver certo.
 ## O fluxo de trabalho
 
 ```
-1. desenvolve aqui, commitando na main deste repo
+1. desenvolve aqui, em branch, e abre PR para a main deste repo
 2. a mudanca e de teste local?  -> fica aqui, fim
    a mudanca e feature de verdade? -> tem de ir para a VM da CAT
 3. transporte: e-mail, no arquivo mais leve possivel (.txt com o diff)
@@ -152,8 +152,21 @@ preciso ter instalado para isto rodar", e ele só serve se estiver certo.
 5. o Luis cria a branch e abre o PR la
 ```
 
-**Neste repo nao se abre branch nem PR.** Commit direto na `main` e o normal; o
-PR existe do lado da CAT, e quem abre e o Luis. O passo 5 e dele, nao nosso.
+**Este repo tambem trabalha por PR (decidido em 19/10).** Branch por trabalho
+(`feat/`, `fix/`, `docs/`, `ci/`) a partir de `origin/main`; nada de commit ou
+push com a `main` em checkout -- o hook `.claude/hooks/guard-command.sh` recusa.
+O Claude abre o PR quando os commits da branch estiverem terminados. Antes de
+abrir:
+
+- **`/code-review` sempre.** Um contexto novo que ve so o diff avalia melhor
+  que quem acabou de escreve-lo, e as levas sao PRs grandes.
+- **`/security-review` quando tocar `backend/` (entrada da API, PATCH,
+  migracao), `shared/shared/` ou autenticacao.**
+- Os checks de sempre (secao "Rodar e testar"), `npm run build` se tocar o
+  frontend, e venv limpa de `backend/requirements.txt` se tocar import.
+
+O PR do lado da CAT continua sendo do Luis (passo 5): a leva sai do merge aqui.
+Os guardrails automaticos estao em `.claude/hooks/` (ver o README de la).
 
 ### Leva para a CAT: o que nao se negocia
 
