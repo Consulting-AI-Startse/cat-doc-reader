@@ -12,12 +12,13 @@ estado do PR.
 
 ---
 
-## 2026-10-20 — leva 15: part number pela lista de PN, e `migrar.py` · **merjado** (PR #35 da CAT), migração 0010 a confirmar
+## 2026-10-20 — leva 15: part number pela lista de PN, e `migrar.py` · **merjado** (PR #35 da CAT), migração 0010 aplicada
 
 **Merjada em 20/10** como o PR #35 da CAT; a `main` de lá ficou em `baa444f`,
 conferida na VM com os blobs de `structurer.py` (`a09118a82f28`), `parts.py`
 (`946ce7fa690f`) e `migrar.py` (`3eabb801e9f2`), os três no "depois" desta
-leva. **A migração `0009 -> 0010` ainda não foi confirmada aqui.**
+leva. **Migração `0009 -> 0010` aplicada em produção**, a primeira pelo
+`python migrar.py`, confirmada pelo Luis em 20/10.
 
 **Tropeço na aplicação, e o motivo de a checagem ter vindo para antes:** o
 script parou no passo 3, sem escrever, porque nenhum `raw-civ-cap.json` em
