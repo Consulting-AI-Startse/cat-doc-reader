@@ -44,7 +44,7 @@ CONFIDENCE_THRESHOLD = 0.90
 logger = logging.getLogger("doc_worker")
 
 
-def _consulta_pn(db: Session, content: str) -> tuple[set[str], set[str]]:
+def _lookup_part_numbers(db: Session, content: str) -> tuple[set[str], set[str]]:
     """(exigem serial, liberados): chaves, entre as citadas no texto, que a
     lista marca como exigindo serial, e todas as que estao nela.
 
@@ -68,7 +68,7 @@ def _consulta_pn(db: Session, content: str) -> tuple[set[str], set[str]]:
     return {k for k, linha in achados.items() if linha.requires_serial}, set(achados)
 
 
-def _marca_liberados(db: Session, result: dict) -> list[list[bool | None]]:
+def _mark_released(db: Session, result: dict) -> list[list[bool | None]]:
     """part_number_released de cada linha gravada, por invoice, e a nota de
     quem ficou fora da lista. Nota, nunca problema nem descarte: codigo de
     fornecedor ('15.1301.466') nunca estara na lista e e item real -- mandar
@@ -85,11 +85,12 @@ def _marca_liberados(db: Session, result: dict) -> list[list[bool | None]]:
         db.rollback()
         logger.warning("lista de part numbers indisponivel (%s); linhas sem marca", exc)
         flags = [None] * len(pns)
-    fora = sorted({str(pn) for pn, f in zip(pns, flags) if f is False})
-    if fora:
+    not_released = sorted({str(pn) for pn, f in zip(pns, flags) if f is False})
+    if not_released:
         result.setdefault("notes", []).append(
             "%d part number(s) fora da lista de liberados: %s"
-            % (len(fora), "; ".join(fora[:10]) + (" ..." if len(fora) > 10 else "")))
+            % (len(not_released), "; ".join(not_released[:10])
+               + (" ..." if len(not_released) > 10 else "")))
     out, it = [], iter(flags)
     for inv in invoices:
         out.append([next(it) for _ in inv.get("line_items") or []])
@@ -167,13 +168,13 @@ def process_document(
         # peca exige serial. E deterministico e custa uma consulta -- perguntar
         # ao modelo "esta fatura e de motor?" devolveria o palpite que a coluna
         # requires_serial existe justamente para eliminar.
-        exigem_serial, liberados = _consulta_pn(db, extraction.get("content") or "")
-        result = structurer.structure(extraction, exigem_serial, liberados)
-        liberadas = _marca_liberados(db, result)
+        exigem_serial, released_keys = _lookup_part_numbers(db, extraction.get("content") or "")
+        result = structurer.structure(extraction, exigem_serial, released_keys)
+        released_by_invoice = _mark_released(db, result)
 
         doc.invoices.clear()
         duplicates = []
-        for inv, flags in zip(result.get("invoices", []), liberadas):
+        for inv, flags in zip(result.get("invoices", []), released_by_invoice):
             lines = inv.get("line_items", [])
             invoice = Invoice(
                 invoice_number=inv.get("invoice_number"),

@@ -443,8 +443,8 @@ def update_document(
 
     # O revisor pode ter corrigido o part number: a marca de "fora da lista"
     # e refeita do que ficou, numa consulta para o documento inteiro.
-    linhas = [li for inv in doc.invoices for li in inv.line_items]
-    for li, released in zip(linhas, released_flags(db, [li.part_number for li in linhas])):
+    items = [li for inv in doc.invoices for li in inv.line_items]
+    for li, released in zip(items, released_flags(db, [li.part_number for li in items])):
         li.part_number_released = released
 
     if duplicates:

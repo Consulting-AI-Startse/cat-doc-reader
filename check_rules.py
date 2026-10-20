@@ -70,29 +70,47 @@ LIB = {"2396739", "2902789", "4463802", "6637238", "1112222"}
 # Carraro: os dois codigos na mesma linha da tabela (HTML do Document Intelligence).
 row = "<tr>\n<td>148409</td>\n<td>RIGIDA EIXO</td>\n<td>2396739</td>\n<td>5</td>\n</tr>"
 check("Carraro: mesma linha da tabela", _resolve_cat_part_number("148409", None, row, LIB, set()),
-      ("swap", "2396739", "2396739", True))
+      ("swap", "2396739", "2396739", True, False))
 # Clydesdale: os dois na mesma linha de texto, fora de tabela.
 check("Clydesdale: mesma linha de texto",
       _resolve_cat_part_number("K000403546P", None, "x\nK000403546P 446-3802 RATCHET\ny", LIB, set()),
-      ("swap", "446-3802", "4463802", True))
+      ("swap", "446-3802", "4463802", True, False))
 # CIV CD970373103: o CAT esta fora da tabela, ~250 caracteres abaixo -> fraco.
 perto = "<tr><td>10191557</td><td>90</td></tr></table>" + " " * 200 + "663-7238~00"
-check("so perto da linha: fraco", _resolve_cat_part_number("10191557", None, perto, LIB, set()),
-      ("swap", "663-7238", "6637238", False))
+check("so perto da linha: fraco, com o sufixo impresso",
+      _resolve_cat_part_number("10191557", None, perto, LIB, set()),
+      ("swap", "663-7238~00", "6637238", False, False))
 check("longe demais: nada", _resolve_cat_part_number("10191557", None,
       "10191557" + " " * 600 + "663-7238", LIB, set()), None)
 check("fora da lista: nada", _resolve_cat_part_number("148409", None,
       "<tr><td>148409</td><td>9998877</td></tr>", LIB, set()), None)
 check("dois na mesma linha: revisor", _resolve_cat_part_number("148409", None,
       "<tr><td>148409</td><td>2396739</td><td>111-2222</td></tr>", LIB, set())[0], "ambiguous")
-check("o que outra linha ja usa nao conta", _resolve_cat_part_number("148409", None,
-      "<tr><td>148409</td><td>2396739</td><td>111-2222</td></tr>", LIB, {"1112222"}),
-      ("swap", "2396739", "2396739", True))
+# O PN que outra linha ja usa so e barrado no achado fraco: a janela alcanca a
+# vizinha. Na propria linha da tabela, repetir o PN de outra linha e legitimo
+# (mesma peca, outro PO).
+check("ja usado por outra linha: fora do fraco", _resolve_cat_part_number("148409", None,
+      "<tr><td>148409</td></tr>" + " " * 50 + "2396739 111-2222", LIB, {"1112222"}),
+      ("swap", "2396739", "2396739", False, False))
+check("ja usado, mas na propria linha: vale", _resolve_cat_part_number("148409", None,
+      "<tr><td>148409</td><td>2396739</td></tr>", LIB, {"2396739"}),
+      ("swap", "2396739", "2396739", True, False))
+# Fronteira de token: o codigo nao casa dentro de outro numero, e codigo curto
+# nao e procurado.
+check("nao casa dentro de outro numero", _resolve_cat_part_number("48409", None,
+      "<tr><td>148409</td><td>2396739</td></tr>", LIB, set()), None)
+check("codigo curto nao e procurado", _resolve_cat_part_number("4480", None,
+      "<tr><td>4480</td><td>2396739</td></tr>", LIB, set()), None)
 check("ocorrencia em pagina de embarque nao conta", _resolve_cat_part_number(
       "148409", None, "<tr><td>148409</td><td>2396739</td></tr>", LIB, set(), [(0, 50)]), None)
 check("campos trocados pelo modelo", _resolve_cat_part_number(
       "MN447750-31914C", "290-2789", "MN447750-31914C ... 290-2789", LIB, set()),
-      ("swap", "290-2789", "2902789", True))
+      ("swap", "290-2789", "2902789", True, True))
+check("campo trocado sem hifen casa pela chave", _resolve_cat_part_number(
+      "MN447750-31914C", "2902789", "x\n290-2789\ny", LIB, set()),
+      ("swap", "290-2789", "2902789", True, True))
+check("campo trocado so em pagina de embarque nao conta", _resolve_cat_part_number(
+      "MN447750-31914C", "290-2789", "290-2789", LIB, set(), [(0, 8)]), None)
 
 print("=== _derive_line_numbers: o amount impresso e a ancora ===")
 for label, args, esperado in [

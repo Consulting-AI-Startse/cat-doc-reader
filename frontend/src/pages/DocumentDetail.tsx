@@ -49,9 +49,12 @@ interface LineForm {
   // "Está na lista de liberados?", como o servidor julgou. Só leitura: o PATCH
   // reconsulta a lista com o part number salvo.
   _released: boolean | null;
+  // O part number que o servidor julgou. Editado e não salvo, o selo falaria
+  // do valor antigo; o _orig não serve, porque é o da extração e não muda ao salvar.
+  _releasedFor: string;
 }
 
-type LineField = Exclude<keyof LineForm, "_fc" | "_orig" | "_landed" | "_released">;
+type LineField = Exclude<keyof LineForm, "_fc" | "_orig" | "_landed" | "_released" | "_releasedFor">;
 
 interface InvoiceForm {
   invoice_number: string;
@@ -110,6 +113,7 @@ function buildForm(d: Detail): InvoiceForm[] {
           _orig: values,
           _landed: { unit: str(li.unit_price_landed), amount: str(li.amount_landed) },
           _released: li.part_number_released,
+          _releasedFor: str(li.part_number),
         };
       }),
     };
@@ -175,7 +179,12 @@ function withLanded(form: InvoiceForm[], saved: Detail): InvoiceForm[] {
     ...inv,
     line_items: inv.line_items.map((l) => {
       const hit = pool.get(lineKey(l.part_number, l.serial_number, l.quantity, l.unit_price))?.shift();
-      return { ...l, _landed: hit?.landed ?? { unit: "", amount: "" }, _released: hit?.released ?? null };
+      return {
+        ...l,
+        _landed: hit?.landed ?? { unit: "", amount: "" },
+        _released: hit?.released ?? null,
+        _releasedFor: l.part_number,
+      };
     }),
   }));
 }
@@ -201,6 +210,7 @@ const emptyLine = (): LineForm => ({
   _orig: {},
   _landed: { unit: "", amount: "" },
   _released: null,
+  _releasedFor: "",
 });
 
 export function DocumentDetail() {
@@ -568,7 +578,14 @@ export function DocumentDetail() {
                               <>
                                 <Cell>
                                   <input className={`${inputCls} ${fcClass(l._fc?.part_number)}`} title={fcTitle(l._fc?.part_number)} value={l.part_number} onChange={(e) => setLine(i, li, "part_number", e.target.value)} />
-                                  <PartNumberMeta supplier={l.supplier_part_number} released={l._released} />
+                                  <PartNumberMeta
+                                    supplier={l.supplier_part_number}
+                                    released={l.part_number === l._releasedFor ? l._released : null}
+                                    onUndo={() => {
+                                      setLine(i, li, "part_number", l.supplier_part_number);
+                                      setLine(i, li, "supplier_part_number", "");
+                                    }}
+                                  />
                                 </Cell>
                                 <Cell><input className={`${inputCls} ${fcClass(l._fc?.serial_number)}`} title={fcTitle(l._fc?.serial_number)} value={l.serial_number} onChange={(e) => setLine(i, li, "serial_number", e.target.value)} /></Cell>
                                 <Cell wide><input className={inputCls} value={l.description} onChange={(e) => setLine(i, li, "description", e.target.value)} /></Cell>
@@ -749,7 +766,15 @@ function InvoiceConfidence({ inv }: { inv: Detail["invoices"][number] | undefine
 // Debaixo do part number: o código do fornecedor que ele substituiu, e o selo
 // de "fora da lista". Nota, não erro: código de fornecedor nunca estará na
 // lista de liberados e é item real.
-function PartNumberMeta({ supplier, released }: { supplier: string; released: boolean | null }) {
+function PartNumberMeta({
+  supplier,
+  released,
+  onUndo,
+}: {
+  supplier: string;
+  released: boolean | null;
+  onUndo?: () => void;
+}) {
   if (!supplier && released !== false) return null;
   return (
     <div className="mt-0.5 flex flex-wrap items-center gap-1 font-sans text-[10px] leading-tight">
@@ -761,7 +786,24 @@ function PartNumberMeta({ supplier, released }: { supplier: string; released: bo
           fora da lista
         </span>
       )}
-      {supplier && <span className="text-neutral-400" title="Código do fornecedor impresso na mesma linha">forn.: {supplier}</span>}
+      {supplier && (
+        <span
+          className="text-neutral-400"
+          title="Código do fornecedor que estava no lugar do part number; o part number CAT da lista o substituiu (o motivo está em Decisões da extração)"
+        >
+          forn.: {supplier}
+        </span>
+      )}
+      {supplier && onUndo && (
+        <button
+          type="button"
+          onClick={onUndo}
+          className="cursor-pointer text-neutral-400 underline underline-offset-2 hover:text-neutral-700"
+          title="Volta o código do fornecedor para o part number"
+        >
+          desfazer
+        </button>
+      )}
     </div>
   );
 }

@@ -597,7 +597,7 @@ carraro = {"invoices": [{"invoice_number": "1014601200", "total": "9.525,30", "l
     {"part_number": "148409", "description": "RIGIDA EIXO 28.38M",
      "quantity": "5", "unit_price": "1.905,06", "amount": "9.525,30"}]}], "confidence": 0.95}
 cont = "<tr>\n<td>148409</td>\n<td>RIGIDA EIXO 28.38M</td>\n<td>2396739</td>\n<td>5</td>\n</tr>"
-r = _normalise(carraro, 0.95, content=cont, liberados=LIB)
+r = _normalise(carraro, 0.95, content=cont, released_keys=LIB)
 li = r["invoices"][0]["line_items"][0]
 check("Carraro: o CAT vence", li["part_number"], "2396739")
 check("e o do fornecedor fica guardado", li["supplier_part_number"], "148409")
@@ -612,7 +612,7 @@ rfm = {"invoices": [{"invoice_number": "S46572", "total": "3156.48", "line_items
     "confidence": 0.95}
 cont = ("<tr><td>15</td><td>MN447750-31914C</td><td>CONDENSER</td><td>290-2789</td></tr>\n"
         "<tr><td>3</td><td>MN222000-99644C</td><td>MODULE</td><td>360-2360</td></tr>")
-r = _normalise(rfm, 0.95, content=cont, liberados=LIB)
+r = _normalise(rfm, 0.95, content=cont, released_keys=LIB)
 check("RFM04744: cada linha com o seu CAT",
       [l["part_number"] for l in r["invoices"][0]["line_items"]], ["290-2789", "360-2360"])
 
@@ -623,19 +623,37 @@ check("sem liberados nada muda", r["invoices"][0]["line_items"][0]["part_number"
 # CIV real, fatura CD970373103: na rodada de 01/10 o modelo pegou o codigo do
 # fornecedor '10191557'; o '663-7238~00' esta fora da tabela, ~250 caracteres
 # abaixo. Com a lista: troca, mas como hipotese (perto, nao na mesma linha).
-r = _normalise(civ, None, [], None, content, set(), None, kinds, liberados=GABARITO_MATERIAL)
+r = _normalise(civ, None, [], None, content, set(), None, kinds, released_keys=GABARITO_MATERIAL)
 cd = next(i for i in r["invoices"] if any(l.get("supplier_part_number") == "10191557"
                                           for l in i["line_items"]))
-check("CIV: 10191557 vira 663-7238",
+check("CIV: 10191557 vira 663-7238~00, como impresso",
       [l["part_number"] for l in cd["line_items"] if l.get("supplier_part_number") == "10191557"],
-      ["663-7238"])
+      ["663-7238~00"])
 check("e pede conferencia", any("10191557" in v and "conferir" in v for v in r["validation"]), True)
 # Pessimista: todo candidato do CIV na lista. O '10191557' reaparece na nota de
 # entrega, perto do numero de consignacao da DHL -- a pagina de embarque nao conta.
 todos = {x.replace("-", "") for x in candidate_part_numbers(content)}
-r = _normalise(civ, None, [], None, content, set(), None, kinds, liberados=todos)
+r = _normalise(civ, None, [], None, content, set(), None, kinds, released_keys=todos)
 check("CIV com a lista inteira: nao se confunde com a DHL",
       any("6408901" in v for v in r["validation"]), False)
+
+# Achado do code review: com os campos trocados pelo modelo, o codigo do
+# fornecedor sumia e a linha ficava com o CAT nos dois campos.
+trocado = {"invoices": [{"invoice_number": "S46572", "total": "1247.40", "line_items": [
+    {"part_number": "MN447750-31914C", "supplier_part_number": "290-2789",
+     "quantity": "15", "unit_price": "83.16", "amount": "1247.40"}]}], "confidence": 0.95}
+r = _normalise(trocado, 0.95, content="MN447750-31914C CONDENSER 290-2789", released_keys=LIB)
+li = r["invoices"][0]["line_items"][0]
+check("campos trocados: o CAT vai para part_number", li["part_number"], "290-2789")
+check("e o do fornecedor fica no lugar dele", li["supplier_part_number"], "MN447750-31914C")
+# PN com forma CAT que nao esta impresso e leitura errada, nao codigo de
+# fornecedor: nao entra na troca.
+lido_errado = {"invoices": [{"invoice_number": "X", "total": "10.00", "line_items": [
+    {"part_number": "663-7239", "supplier_part_number": "663-7238",
+     "quantity": "1", "unit_price": "10.00", "amount": "10.00"}]}], "confidence": 0.95}
+r = _normalise(lido_errado, 0.95, content="663-7238", released_keys={"6637238"})
+check("not_printed nao vira 'codigo do fornecedor'",
+      r["invoices"][0]["line_items"][0]["part_number"], "663-7239")
 
 low = re.sub(r"\s+", " ", _SYSTEM_PROMPT.lower())
 check("regra 2 pede o codigo do cliente", "\"part_number\" is the customer's code" in low, True)
