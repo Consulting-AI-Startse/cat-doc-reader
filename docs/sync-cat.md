@@ -12,6 +12,69 @@ estado do PR.
 
 ---
 
+## 2026-10-20 — leva 15: part number pela lista de PN, e `migrar.py` · **pacote pronto**, migração 0010
+
+Item 11 do `BACKLOG.md` (PR #4 deste repo): o part number CAT impresso junto
+vence o código do fornecedor, e a tela marca "fora da lista". 14 arquivos (2
+novos), por ZIP em base64 + script autocontido. Branch sugerida:
+`feat/leva-15-part-number-pela-lista`. **Traz a migração `0010`** (só colunas
+nulas, sem `GRANT`), a primeira aplicada com o `backend/migrar.py`, e toca
+`shared/shared/`, então o script roda o `build.ps1`.
+
+**O `DEPLOY.md` vai junto pela primeira vez desde a leva 13.** Ele mudou aqui
+no PR #3 (o roteiro curto de migração) sem ir para a CAT, então a base dele lá
+é o "depois" da 13 (`2638f9f29d08`), e não o nosso blob anterior ao PR #4. O
+`shared/shared/parts.py` e o `check_parts.py` estão no "depois" da leva 6. As
+14 bases conferem com este log.
+
+**Ordem em produção:** como na leva 14 -- a `0010` roda logo que o backend
+subir, senão todo documento cai em `error` (worker e backend leem as colunas
+novas).
+
+**O script mudou em dois pontos, os dois por tropeço medido:**
+
+- confere venv, `build.ps1` e o `raw-civ-cap.json` **antes** de escrever a
+  árvore, e procura o fixture em subpastas de `Downloads`, copiando-o para a
+  raiz (na leva 14 ele estava numa subpasta e o script só soube no passo 6);
+- o passo 6 decide pela **saída** (`tudo certo`, `IMPORT_OK`), não pelo
+  `$LASTEXITCODE`. Testado com um `python.exe` vazio: se o executável nem
+  roda, o PowerShell não atualiza o `$LASTEXITCODE`, sobrava o 0 do
+  `build.ps1`, e os três checks davam OK sem rodar. O defeito estava também no
+  script da leva 14, que passou porque o Python da VM funciona.
+
+Testado com Windows PowerShell 5.1 e git do Windows, checkout CRLF, num clone
+na base da CAT (com o `DEPLOY.md` no blob da 13): `.b64` corrompido, branch
+errada, árvore suja e base divergente (o `DEPLOY.md` daqui) param sem tocar o
+repo; aplica limpo; reconhece a leva já aplicada; fixture ausente para antes
+de escrever; fixture em subpasta é achado e copiado. O caminho positivo do
+passo 6 não rodou no Windows -- a máquina de desenvolvimento não tem Python
+Windows -- e foi rodado aqui no Linux.
+
+| | |
+|---|---|
+| SHA-256 do `aplicar-leva15.b64` | `42c91f047b2dc534bede2a4c93cc9272b5648cd11b0566466cb049fff0c08572` |
+| SHA-256 do `leva15-arquivos.b64` | `47965a9f71cfa1c1f6e1325f9c82cae50676906205fdd2721f0b0358be8981a4` |
+| SHA-256 do `leva15-arquivos.zip` | `c94d381da4be2629f633c0bf920fc80f9ec1d8a82ff66acc8ffc50badb154b20` |
+
+| arquivo | base | depois |
+|---|---|---|
+| `function/pipeline/structurer.py` | `9ec32fa9a7bd` | `a09118a82f28` |
+| `function/doc_worker.py` | `e04fd1bf2141` | `f3fec21b1ad9` |
+| `shared/shared/parts.py` | `bd6ff2dd6030` | `946ce7fa690f` |
+| `shared/shared/models.py` | `1d178013382f` | `b7178ec01533` |
+| `backend/app/api/documents.py` | `e86365c8451f` | `c00857f3990d` |
+| `backend/alembic/versions/0010_supplier_part_number_and_released.py` | `(novo)` | `8b416be1f1c8` |
+| `backend/migrar.py` | `(novo)` | `3eabb801e9f2` |
+| `db/db-setup-v2.sql` | `5a42ecf10468` | `7bb169480bf3` |
+| `frontend/src/pages/DocumentDetail.tsx` | `41c25c2ebc2e` | `6300c6a5d628` |
+| `frontend/src/types/document.ts` | `ca1ae141efc7` | `3a3878cb45a5` |
+| `check_rules.py` | `9c17db14090b` | `e2c3bb8c676e` |
+| `check_structurer.py` | `f984d84c8e76` | `c765dcb9b1d4` |
+| `check_parts.py` | `6ad902b84a22` | `ca9a81335e4a` |
+| `DEPLOY.md` | `2638f9f29d08` | `61a5cb3b4bda` |
+
+---
+
 ## 2026-10-19 — leva 14: aritmética da linha, linhas de encargo, frete/embalagem gravados · **merjado** (PR #34 da CAT), migração 0009 aplicada
 
 **Merjada em 19/10** como o PR #34 da CAT; a `main` de lá ficou em

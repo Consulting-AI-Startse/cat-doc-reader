@@ -86,6 +86,12 @@ Para cada leva de mudancas que precisa ir para a VM, produza **quatro coisas**:
    Fixture, venv e `build.ps1` se conferem no passo 3, junto com a base -- e o
    fixture se procura em `Downloads` recursivamente, nao so na raiz.
 
+   **Check decide pela saida, nunca pelo `$LASTEXITCODE`.** Se o executavel
+   nem roda (venv quebrada, `python.exe` vazio), o PowerShell nao atualiza o
+   `$LASTEXITCODE` e sobra o do comando anterior -- o 0 do `build.ps1`. Na
+   leva 15, com um `python.exe` vazio, os tres checks davam OK sem rodar. Exija
+   o texto: `tudo certo` no fim do check, um marcador impresso no import.
+
    **Teste o script antes de mandar.** Reconstrua a arvore da CAT a partir dos
    blobs que ela reportou (`git cat-file -p <blob>` monta cada arquivo), rode o
    script contra esse repo de teste e confira os tres caminhos: aplica limpo,
