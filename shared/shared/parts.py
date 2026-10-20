@@ -20,6 +20,54 @@ from .models import ReleasedPartNumber, SerialRules
 
 _NOT_ALNUM = re.compile(r"[^A-Z0-9]+")
 
+# A forma de um part number CAT mora aqui, e nao no structurer, porque o
+# backend tambem precisa dela: o PATCH reconfere na lista o part number que o
+# revisor editou, e '663-7238~00' tem de virar a mesma chave nos dois lados.
+#
+# Prefixo de 3 alfanumericos com hifen opcional ('463-8344', '6511308') ou de
+# 2 SEMPRE com hifen ('5P-1465', '7G-5837'). O hifen no caso curto e o que
+# separa um part number real da marcacao de end use '0V3456', que tem a mesma
+# forma sem hifen.
+PART_NUMBER_RE = re.compile(r"^(?:[0-9A-Z]{3}-?[0-9]{4}|[0-9A-Z]{2}-[0-9]{4})$")
+# Sufixo de revisao/planta que a Caterpillar imprime junto do part number:
+# '663-7238~00', '6064986-07', '364-9717/01'. Nao faz parte do numero.
+PART_NUMBER_SUFFIX_RE = re.compile(r"^(?P<base>.+?)(?P<suffix>[~/][0-9A-Z]{1,3}|-[0-9]{2})$")
+# A AutoMotionShade imprime 'CAT 657-3755': o prefixo e da marca.
+CAT_PREFIX_RE = re.compile(r"^CAT[\s:#-]+(\S+)$", re.IGNORECASE)
+
+
+def split_part_number(text: str):
+    """(base, sufixo). So separa se o que sobra for part number valido.
+
+    A guarda importa: '463-8344' casa inteiro na primeira linha e nunca chega
+    ao corte, senao viraria '463-83'.
+    """
+    if PART_NUMBER_RE.match(text):
+        return text, None
+    m = PART_NUMBER_SUFFIX_RE.match(text)
+    if m and PART_NUMBER_RE.match(m.group("base")):
+        return m.group("base"), m.group("suffix")
+    return text, None
+
+
+def part_number_key(value) -> str | None:
+    """Chave da lista para um part number como impresso ou editado.
+
+    Part number CAT perde marca, sufixo e hifen ('CAT 663-7238~00' ->
+    '6637238'), que e a forma da lista e da coluna Material do gabarito. O
+    resto so perde o que nao e alfanumerico, como no import da lista.
+    """
+    if value is None or not str(value).strip():
+        return None
+    text = str(value).strip().upper()
+    m = CAT_PREFIX_RE.match(text)
+    if m and PART_NUMBER_RE.match(split_part_number(m.group(1))[0]):
+        text = m.group(1)
+    base, _ = split_part_number(text)
+    if PART_NUMBER_RE.match(base):
+        return base.replace("-", "")
+    return normalise_part_number(text)
+
 
 def normalise_part_number(value) -> str | None:
     """Forma canonica da chave: maiuscula, sem hifen nem sufixo de revisao.
@@ -47,6 +95,23 @@ def lookup(db: Session, part_numbers) -> dict[str, ReleasedPartNumber]:
         select(ReleasedPartNumber).where(ReleasedPartNumber.part_number.in_(chaves))
     ).all()
     return {linha.part_number: linha for linha in linhas}
+
+
+def released_flags(db: Session, part_numbers) -> list[bool | None]:
+    """Para cada part number: True na lista, False fora dela, None sem como
+    julgar (vazio, ou a lista ainda nao foi importada).
+
+    Lista vazia nao e "nada esta liberado": sem esta distincao, um ambiente
+    novo marcaria toda linha de toda fatura como fora da lista. Duas consultas
+    por documento, nunca uma por linha.
+    """
+    keys = [part_number_key(p) for p in part_numbers]
+    if not any(keys):
+        return [None] * len(keys)
+    if db.scalar(select(ReleasedPartNumber.part_number).limit(1)) is None:
+        return [None] * len(keys)
+    found = lookup(db, [k for k in keys if k])
+    return [None if not k else (k in found) for k in keys]
 
 
 def get_rules(db: Session) -> SerialRules:

@@ -589,6 +589,58 @@ r = _normalise(semp, 0.95, content="15.1301.466")
 check("item sem preco lido continua item", len(r["invoices"][0]["line_items"]), 1)
 check("e acusa a falta", any("amount ausente" in v for v in r["validation"]), True)
 
+print("=== 15. part number pela lista de liberados (leva 15) ===")
+# Relatorio da CAT: "part number errado, MAIORIA". A linha imprime o codigo do
+# fornecedor e o da Caterpillar, e o modelo escolhia o do fornecedor.
+LIB = {"2396739", "2902789", "3602360", "4463802"}
+carraro = {"invoices": [{"invoice_number": "1014601200", "total": "9.525,30", "line_items": [
+    {"part_number": "148409", "description": "RIGIDA EIXO 28.38M",
+     "quantity": "5", "unit_price": "1.905,06", "amount": "9.525,30"}]}], "confidence": 0.95}
+cont = "<tr>\n<td>148409</td>\n<td>RIGIDA EIXO 28.38M</td>\n<td>2396739</td>\n<td>5</td>\n</tr>"
+r = _normalise(carraro, 0.95, content=cont, liberados=LIB)
+li = r["invoices"][0]["line_items"][0]
+check("Carraro: o CAT vence", li["part_number"], "2396739")
+check("e o do fornecedor fica guardado", li["supplier_part_number"], "148409")
+check("status CAT", li["part_number_status"], "cat")
+check("mesma linha: nota, sem revisao", r["validation"], [])
+check("a troca esta na nota", any("codigo do fornecedor" in n for n in r["notes"]), True)
+
+# 2026RFM04744: duas linhas, cada uma com os dois codigos na propria linha.
+rfm = {"invoices": [{"invoice_number": "S46572", "total": "3156.48", "line_items": [
+    {"part_number": "MN447750-31914C", "quantity": "15", "unit_price": "83.16", "amount": "1247.40"},
+    {"part_number": "MN222000-99644C", "quantity": "3", "unit_price": "636.36", "amount": "1909.08"}]}],
+    "confidence": 0.95}
+cont = ("<tr><td>15</td><td>MN447750-31914C</td><td>CONDENSER</td><td>290-2789</td></tr>\n"
+        "<tr><td>3</td><td>MN222000-99644C</td><td>MODULE</td><td>360-2360</td></tr>")
+r = _normalise(rfm, 0.95, content=cont, liberados=LIB)
+check("RFM04744: cada linha com o seu CAT",
+      [l["part_number"] for l in r["invoices"][0]["line_items"]], ["290-2789", "360-2360"])
+
+# Sem a lista (modo local, lista indisponivel): nada muda.
+r = _normalise(carraro, 0.95, content="<tr><td>148409</td><td>2396739</td></tr>")
+check("sem liberados nada muda", r["invoices"][0]["line_items"][0]["part_number"], "148409")
+
+# CIV real, fatura CD970373103: na rodada de 01/10 o modelo pegou o codigo do
+# fornecedor '10191557'; o '663-7238~00' esta fora da tabela, ~250 caracteres
+# abaixo. Com a lista: troca, mas como hipotese (perto, nao na mesma linha).
+r = _normalise(civ, None, [], None, content, set(), None, kinds, liberados=GABARITO_MATERIAL)
+cd = next(i for i in r["invoices"] if any(l.get("supplier_part_number") == "10191557"
+                                          for l in i["line_items"]))
+check("CIV: 10191557 vira 663-7238",
+      [l["part_number"] for l in cd["line_items"] if l.get("supplier_part_number") == "10191557"],
+      ["663-7238"])
+check("e pede conferencia", any("10191557" in v and "conferir" in v for v in r["validation"]), True)
+# Pessimista: todo candidato do CIV na lista. O '10191557' reaparece na nota de
+# entrega, perto do numero de consignacao da DHL -- a pagina de embarque nao conta.
+todos = {x.replace("-", "") for x in candidate_part_numbers(content)}
+r = _normalise(civ, None, [], None, content, set(), None, kinds, liberados=todos)
+check("CIV com a lista inteira: nao se confunde com a DHL",
+      any("6408901" in v for v in r["validation"]), False)
+
+low = re.sub(r"\s+", " ", _SYSTEM_PROMPT.lower())
+check("regra 2 pede o codigo do cliente", "\"part_number\" is the customer's code" in low, True)
+check("supplier_part_number no shape", '"supplier_part_number"' in _SYSTEM_PROMPT.split("HARD RULES")[0], True)
+
 print()
 if falhas:
     print(f"{len(falhas)} FALHA(S): {falhas}")

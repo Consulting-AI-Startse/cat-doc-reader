@@ -126,7 +126,23 @@ with Session(engine) as db:
     check("substrings gravadas", parts.get_rules(db).substrings, ["ENGINE AR"])
     check("id e sempre 1", db.scalar(select(func.count()).select_from(SerialRules)), 1)
 
+    print("=== released_flags: a marca de 'fora da lista' (leva 15) ===")
+    # Com a amostra carregada: a chave e a da lista, qualquer que seja a grafia
+    # impressa -- hifen, sufixo de revisao e a marca 'CAT ' na frente.
+    check("formas do mesmo PN liberado",
+          parts.released_flags(db, ["663-7238", "CAT 663-7238~00", "6637238", "5P-1465"]),
+          [True, True, True, True])
+    check("codigo de fornecedor fica fora",
+          parts.released_flags(db, ["148409", "15.1301.466"]), [False, False])
+    check("vazio nao se julga", parts.released_flags(db, [None, "", "6511308"]), [None, None, True])
+
     db.execute(delete(ReleasedPartNumber))
+    db.commit()
+    # Lista vazia nao e "nada esta liberado": um ambiente novo marcaria toda
+    # linha de toda fatura como fora da lista.
+    check("sem lista importada: nulo, nao falso",
+          parts.released_flags(db, ["6637238", "148409"]), [None, None])
+
     regras = parts.get_rules(db)
     regras.substrings = []
     regras.manual_part_numbers = []
