@@ -12,7 +12,23 @@ estado do PR.
 
 ---
 
-## 2026-10-19 — leva 14: aritmética da linha, linhas de encargo, frete/embalagem gravados · **pacote pronto**, migração 0009
+## 2026-10-19 — leva 14: aritmética da linha, linhas de encargo, frete/embalagem gravados · **merjado** (PR #34 da CAT), migração 0009 a confirmar
+
+**Merjada em 19/10** como o PR #34 da CAT; a `main` de lá ficou em
+`f8927c7d684308881a4fcde19aaf15ac43046e4e`, conferida na VM com os blobs de
+`structurer.py` (`9ec32fa9a7bd`), `landed.py` (`2aaaf4c9845b`) e da `0009`
+(`ad8da1f3aade`) -- os três no "depois" desta leva. **A migração `0008 -> 0009`
+ainda não foi confirmada aqui:** conferir pelo catálogo as 6 colunas
+(`freight`, `packaging_cost`, `unit_price_landed`, `amount_landed`, e as `unit`
+/ `unit_weight` da 0008, também nunca confirmadas).
+
+**Aplicação na VM:** o script escreveu e conferiu os 11 arquivos, rodou o
+`build.ps1`, o `import function_app` e o `check_rules.py`, e parou no
+`check_structurer.py` porque o `raw-civ-cap.json` não estava na raiz de
+`Downloads` (estava numa subpasta). A árvore estava certa; o check foi rodado
+à mão. Para a próxima: o script deveria procurar o arquivo em `Downloads`
+recursivamente antes de parar, ou checar a presença dele no passo 3, antes de
+escrever.
 
 Item 10 do `BACKLOG.md`, do relatório de testes da CAT
 (`docs/relatorio-testes-cat-2026-10.md`). PR #2 deste repo. 11 arquivos (2
