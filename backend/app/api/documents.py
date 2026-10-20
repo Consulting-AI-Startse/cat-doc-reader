@@ -14,6 +14,7 @@ from app.deps import get_db, get_storage
 from app.processing import enqueue_processing
 from shared.confidence import summarise
 from shared.landed import apportion
+from shared.parts import released_flags
 from shared.dedupe import (
     find_original,
     normalise_invoice_number,
@@ -42,9 +43,14 @@ def _opt_decimal(v) -> Decimal | None:
     if v is None or v == "":
         return None
     try:
-        return Decimal(str(v))
+        d = Decimal(str(v))
     except (InvalidOperation, ValueError):
         raise HTTPException(422, f"valor numérico inválido: {v!r}")
+    # Decimal aceita 'NaN' e 'Infinity'. Gravado, um frete 'NaN' fazia o
+    # rateio devolver 'nan' em toda linha da invoice.
+    if not d.is_finite():
+        raise HTTPException(422, f"valor numérico inválido: {v!r}")
+    return d
 
 
 def _opt_date(v) -> date | None:
@@ -60,6 +66,8 @@ def _opt_date(v) -> date | None:
 def _serialize_line(li: InvoicePartNumberItem) -> dict:
     return {
         "part_number": li.part_number,
+        "supplier_part_number": li.supplier_part_number,
+        "part_number_released": li.part_number_released,
         "serial_number": li.serial_number,
         "description": li.description,
         "quantity": li.quantity,
@@ -193,6 +201,9 @@ def _serialize_document(doc: Document) -> dict:
 
 class LineIn(BaseModel):
     part_number: str | None = None
+    # Volta no payload porque o PATCH recria as linhas. part_number_released
+    # nao: e reconsultado aqui, do part number que o revisor salvou.
+    supplier_part_number: str | None = None
     serial_number: str | None = None
     description: str | None = None
     quantity: str | float | None = None
@@ -383,6 +394,7 @@ def update_document(
             inv.line_items.append(
                 InvoicePartNumberItem(
                     part_number=_opt_str(li.part_number),
+                    supplier_part_number=_opt_str(li.supplier_part_number),
                     serial_number=_opt_str(li.serial_number),
                     description=_opt_str(li.description),
                     quantity=_opt_decimal(li.quantity),
@@ -428,6 +440,12 @@ def update_document(
                 "invoice '%s' (%s) ja existe no documento %s"
                 % (inv.invoice_number, inv.supplier, original.document_id)
             )
+
+    # O revisor pode ter corrigido o part number: a marca de "fora da lista"
+    # e refeita do que ficou, numa consulta para o documento inteiro.
+    items = [li for inv in doc.invoices for li in inv.line_items]
+    for li, released in zip(items, released_flags(db, [li.part_number for li in items])):
+        li.part_number_released = released
 
     if duplicates:
         doc.status = DocumentStatus.needs_review

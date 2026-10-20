@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import re
 import unicodedata
 from abc import ABC, abstractmethod
@@ -8,6 +9,9 @@ from typing import Any
 from pipeline import confidence as fieldconf
 from pipeline import pages as pagekinds
 from shared.landed import apportion
+from shared.parts import (CAT_PREFIX_RE as _CAT_PREFIX_RE, PART_NUMBER_RE,
+                          PART_NUMBER_SUFFIX_RE, part_number_key,
+                          split_part_number as _split_part_number)
 
 logger = logging.getLogger("structurer")
 
@@ -15,18 +19,12 @@ logger = logging.getLogger("structurer")
 TOLERANCE_ABS = 0.02
 TOLERANCE_REL = 0.005
 
-# Part number CAT: prefixo de 3 alfanumericos com hifen opcional
-# ('463-8344', '6511308') ou de 2 SEMPRE com hifen ('5P-1465', '7G-5837').
-# O hifen no caso curto e o que separa um part number real da marcacao de
-# end use '0V3456', que tem a mesma forma sem hifen.
-PART_NUMBER_RE = re.compile(r"^(?:[0-9A-Z]{3}-?[0-9]{4}|[0-9A-Z]{2}-[0-9]{4})$")
+# A forma do part number CAT (PART_NUMBER_RE, sufixo, prefixo da marca) vem de
+# shared/parts.py: o backend precisa dela para reconferir na lista o que o
+# revisor editou.
 # Codigo qualquer: nao e part number CAT, mas tambem nao e prosa.
 CODE_RE = re.compile(r"^[0-9A-Z][0-9A-Z\-/._]{2,29}$")
-# Sufixo de revisao/planta que a Caterpillar imprime junto do part number:
-# '663-7238~00', '6064986-07', '364-9717/01'. Nao faz parte do numero.
-PART_NUMBER_SUFFIX_RE = re.compile(r"^(?P<base>.+?)(?P<suffix>[~/][0-9A-Z]{1,3}|-[0-9]{2})$")
 CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
-_CAT_PREFIX_RE = re.compile(r"^CAT[\s:#-]+(\S+)$", re.IGNORECASE)
 # Separador de milhar de verdade: primeiro grupo de 1 a 3 digitos SEM zero a
 # esquerda, e os demais de tres em tres. '0.162' e '5700,000' nao agrupam.
 _GROUPED_DOT_RE = re.compile(r"^[1-9][0-9]{0,2}(?:\.[0-9]{3})+$")
@@ -57,7 +55,8 @@ A document may contain MULTIPLE invoices; each invoice has MULTIPLE part-number 
 Return ONLY JSON in exactly this shape:
 
 {"invoices": [{"invoice_number", "invoice_number_source", "invoice_date" (YYYY-MM-DD),
-"currency", "freight", "packaging_cost", "total", "line_items": [{"part_number", "description",
+"currency", "freight", "packaging_cost", "total", "line_items": [{"part_number",
+"supplier_part_number", "description",
 "quantity", "unit_price", "amount", "purchase_order", "incoterm",
 "country_of_origin", "domestic_freight", "packaging", "exporter", "supplier",
 "unit", "unit_weight", "line_weight", "weight_uom", "manufacturer", "serial_numbers"}]}],
@@ -88,6 +87,13 @@ HARD RULES — these are the errors that have actually occurred:
    reformat one. If a line's part number is a description fragment or an
    end-use note (for example "I/C Material" or "0V3456 END USE:"), still
    return the line, and put the text you read in "part_number".
+   When a row prints TWO codes -- the supplier's own ("Supplier Part No.",
+   "Our Part No.", "Material no.", "Item No.") and the customer's
+   ("Customer Part No.", "Cust. Mat. No.", "CAT P/N", "Customer No.") --
+   "part_number" is the CUSTOMER's code and "supplier_part_number" is the
+   supplier's. The customer is Caterpillar: its part numbers look like
+   "290-2789", "446-3802", "2396739". With a single code, leave
+   "supplier_part_number" null.
 
 3. PRICES. amount = quantity x unit_price. The per-unit price goes in
    "unit_price" and never in "amount". If the document shows a quantity and an
@@ -382,21 +388,10 @@ def _num(v):
         value = float(t)
     except ValueError:
         return None
+    # float() aceita 'nan' e 'inf'; numero de fatura nunca e isso.
+    if not math.isfinite(value):
+        return None
     return -value if negative else value
-
-def _split_part_number(text: str):
-    """(base, sufixo). So separa se o que sobra for part number valido.
-
-    A guarda importa: '463-8344' casa inteiro na primeira linha e nunca chega
-    ao corte, senao viraria '463-83'.
-    """
-    if PART_NUMBER_RE.match(text):
-        return text, None
-    m = PART_NUMBER_SUFFIX_RE.match(text)
-    if m and PART_NUMBER_RE.match(m.group("base")):
-        return m.group("base"), m.group("suffix")
-    return text, None
-
 
 def _classify_part_number(pn, content: str):
     """(impresso, normalizado, sufixo, status, aviso). Nunca descarta a linha.
@@ -603,6 +598,110 @@ def _charge_kind(li: dict, status: str) -> str | None:
     return None
 
 
+# Distancia, em caracteres, em que um part number CAT ainda e "perto" do codigo
+# do fornecedor. Medido no CIV: na fatura CD970373103 o '663-7238~00' esta fora
+# da tabela, ~250 caracteres abaixo do '10191557' que o modelo escolheu.
+PN_WINDOW = 400
+_PN_TOKEN_RE = re.compile(r"[0-9A-Za-z][0-9A-Za-z\-]{4,15}(?:[~/][0-9A-Za-z]{1,3})?")
+# Codigo de fornecedor mais curto que isto nao e procurado no texto: '100' ou
+# '4480' aparecem dentro de preco, data e linha de outra invoice do mesmo CIV.
+MIN_SUPPLIER_CODE = 5
+
+
+def _cat_codes(text: str) -> dict:
+    """{chave: token como impresso, com sufixo} de tudo com forma de PN CAT."""
+    out = {}
+    for token in _PN_TOKEN_RE.findall(text or ""):
+        token = token.upper()
+        base, _ = _split_part_number(token)
+        if PART_NUMBER_RE.match(base):
+            out.setdefault(base.replace("-", ""), token)
+    return out
+
+
+def _row_of(content: str, i: int) -> str:
+    """A linha de tabela que contem a posicao i, ou a linha de texto.
+
+    O Document Intelligence escreve tabela em HTML com uma celula por linha de
+    texto, entao "a mesma linha" e o <tr>, nao o '\n'.
+    """
+    a = content.rfind("<tr", 0, i)
+    b = content.find("</tr>", i)
+    if a != -1 and b != -1 and content.rfind("</tr>", a, i) == -1:
+        return content[a:b]
+    # Fora de tabela, a linha de texto -- mas so ate meia janela de cada lado:
+    # paragrafo longo, ou texto sem quebra, nao e "a mesma linha" de nada.
+    a = max(content.rfind("\n", 0, i) + 1, i - PN_WINDOW // 2)
+    b = content.find("\n", i)
+    b = min(b if b != -1 else len(content), i + PN_WINDOW // 2)
+    return content[a:b]
+
+
+def _outside(content: str, skip) -> str:
+    """O texto sem os trechos de `skip` (paginas de embarque)."""
+    parts, start = [], 0
+    for a, b in sorted(skip):
+        parts.append(content[start:a])
+        start = max(start, b)
+    parts.append(content[start:])
+    return "\n".join(parts)
+
+
+def _resolve_cat_part_number(code, alt, content: str, released_keys, taken, skip=()):
+    """('swap', PN CAT impresso, chave, forte?, veio do campo alternativo?)
+    | ('ambiguous', [codigos]) | None.
+
+    Relatorio da CAT (out/2026): a linha imprime o codigo do fornecedor E o
+    da Caterpillar, e o modelo escolheu o do fornecedor na maioria -- '148409'
+    no lugar de '2396739' (Carraro), 'MN447750-31914C' no lugar de '290-2789',
+    'K000403546P' no lugar de '446-3802'. A lista de liberados e quem decide
+    qual dos codigos vizinhos e part number de verdade.
+
+    Forte: na mesma linha da tabela (ou de texto). Fraco: ate PN_WINDOW
+    caracteres. Um candidato so decide; dois ou mais, e o revisor. O PN que
+    outra linha da invoice ja usa so e barrado no fraco: a janela de uma linha
+    alcanca a vizinha, mas a propria linha pode repetir o PN de outra (mesma
+    peca, outro PO).
+
+    `skip`: trechos das paginas de embarque. No CIV o '10191557' reaparece na
+    nota de entrega, e a janela de la alcancava o numero de consignacao da DHL
+    ('6408901'), que tem forma de part number.
+    """
+    code = str(code or "").strip()
+    own = part_number_key(code)
+    strong, weak = {}, {}
+    if len(code) >= MIN_SUPPLIER_CODE:
+        bounded = re.compile(r"(?<![0-9A-Za-z])" + re.escape(code) + r"(?![0-9A-Za-z])")
+        for m in bounded.finditer(content):
+            pos = m.start()
+            if any(a <= pos < b for a, b in skip):
+                continue
+            strong.update(_cat_codes(_row_of(content, pos)))
+            weak.update(_cat_codes(content[max(0, pos - PN_WINDOW):m.end() + PN_WINDOW]))
+    # O modelo as vezes devolve os dois codigos trocados de campo. Conferido
+    # pela chave, porque ele escreve '2902789' onde o documento imprime
+    # '290-2789', e fora das paginas de embarque, como as ocorrencias.
+    from_alt = set()
+    alt_codes = _cat_codes(str(alt or ""))
+    if alt_codes:
+        printed = _cat_codes(_outside(content, skip))
+        for key in alt_codes:
+            if key in printed:
+                strong.setdefault(key, printed[key])
+                from_alt.add(key)
+
+    strong = {k: v for k, v in strong.items() if k in released_keys and k != own}
+    weak = {k: v for k, v in weak.items()
+            if k in released_keys and k != own and k not in taken}
+    for found, is_strong in ((strong, True), (weak, False)):
+        if len(found) == 1:
+            key, token = next(iter(found.items()))
+            return "swap", token, key, is_strong, key in from_alt
+        if len(found) > 1:
+            return "ambiguous", sorted(found.values())
+    return None
+
+
 def candidate_part_numbers(content: str) -> list[str]:
     """Tudo no texto cru que TEM FORMA de part number CAT.
 
@@ -615,7 +714,7 @@ def candidate_part_numbers(content: str) -> list[str]:
     """
     achados = []
     vistos = set()
-    for bruto in re.findall(r"[0-9A-Za-z][0-9A-Za-z\-]{4,15}", content or ""):
+    for bruto in _PN_TOKEN_RE.findall(content or ""):
         texto = bruto.upper()
         base, _ = _split_part_number(texto)
         if PART_NUMBER_RE.match(base) and base not in vistos:
@@ -650,7 +749,8 @@ def _cat_invoice_numbers(content: str):
 class LLMStructurer(ABC):
 
     @abstractmethod
-    def structure(self, extraction: dict[str, Any], exigem_serial=None) -> dict[str, Any]:
+    def structure(self, extraction: dict[str, Any], exigem_serial=None,
+                  released_keys=None) -> dict[str, Any]:
         ...
 
 
@@ -691,7 +791,8 @@ class AzureOpenAIStructurer(LLMStructurer):
                 ),
             )
 
-    def structure(self, extraction: dict[str, Any], exigem_serial=None) -> dict[str, Any]:
+    def structure(self, extraction: dict[str, Any], exigem_serial=None,
+                  released_keys=None) -> dict[str, Any]:
         """`exigem_serial`: chaves normalizadas que exigem serial, da lista de PN.
 
         Quem decide isso e uma consulta, nao o modelo: perguntar ao LLM "esta
@@ -736,7 +837,8 @@ class AzureOpenAIStructurer(LLMStructurer):
         payload = json.loads(response.choices[0].message.content or "{}")
         numbers, note = _cat_invoice_numbers(content)
         return _normalise(payload, extraction.get("confidence"), numbers, note,
-                          content, exigem_serial, extraction.get("words"), page_kinds)
+                          content, exigem_serial, extraction.get("words"), page_kinds,
+                          released_keys=released_keys)
 
 
 def _expand_serials(tag: str, li: dict, exige_serial: bool):
@@ -835,7 +937,8 @@ def _record_confidence(fc: dict, registro: dict, content: str, index,
 _NAO_E_ITEM = ("not_a_code", "missing")
 
 
-def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None, index=None):
+def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None, index=None,
+                 released_keys=None, shipping_spans=()):
     """Confere PN e aritmetica, separando o que nao e item de fatura.
 
     A linha descartada NAO some: sai de line_items e vai para discarded_lines,
@@ -868,6 +971,13 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None, in
     charges = {"freight": 0.0, "packaging_cost": 0.0}
     packaging_texts = []
     exigem_serial = exigem_serial or set()
+    # Part number CAT ja usado por outra linha da invoice nao e candidato: a
+    # janela de busca de uma linha alcanca o codigo da vizinha.
+    taken = set()
+    for raw in raw_lines:
+        _, key, _, st, _ = _classify_part_number(raw.get("part_number"), content)
+        if st == "cat":
+            taken.add(key)
 
     for n, li in enumerate(raw_lines):
         line_tag = "%s.line[%d]" % (tag, n)
@@ -900,6 +1010,42 @@ def _check_lines(tag: str, raw_lines: list, content: str, exigem_serial=None, in
                 issues.append("%s: linha '%s' movida para %s pela descricao; conferir "
                               "se nao e peca" % (line_tag, li.get("description"), kind))
             continue
+
+        # Codigo do fornecedor com um part number CAT da lista impresso junto:
+        # o CAT vence. So linha com preco -- linha sem preco nao e item, e a
+        # janela dela alcancaria o codigo da peca vizinha.
+        # So 'other_code': um PN com forma CAT que nao esta impresso
+        # ('not_printed') e leitura errada do modelo, nao codigo de fornecedor,
+        # e grava-lo como "do fornecedor" seria proveniencia falsa.
+        if (released_keys and status == "other_code"
+                and (unit is not None or amount is not None)):
+            found = _resolve_cat_part_number(printed, li.get("supplier_part_number"),
+                                             content, released_keys, taken, shipping_spans)
+            if found and found[0] == "swap":
+                _, cat_pn, key, strong, from_alt = found
+                # O codigo substituido e o que estava em part_number, sempre.
+                # Quando o CAT veio do supplier_part_number (campos trocados
+                # pelo modelo), copiar aquele campo gravaria o CAT nos dois.
+                supplier_code = printed
+                printed, normalised, suffix, status, note = _classify_part_number(cat_pn, content)
+                li = dict(li, supplier_part_number=supplier_code, part_number=printed,
+                          part_number_normalised=normalised, part_number_suffix=suffix,
+                          part_number_status=status)
+                taken.add(key)
+                onde = ("devolvido pelo modelo no campo do fornecedor" if from_alt
+                        else "impresso na mesma linha" if strong else "impresso perto da linha")
+                msg = ("%s: '%s' e codigo do fornecedor; gravado o part number CAT '%s', "
+                       "que esta na lista de liberados e foi %s"
+                       % (line_tag, supplier_code, printed, onde))
+                # Na mesma linha da tabela e prova; so perto e hipotese.
+                if strong:
+                    notas.append(msg)
+                else:
+                    issues.append(msg + "; conferir")
+            elif found and found[0] == "ambiguous":
+                issues.append("%s: '%s' e codigo do fornecedor, e ha %d part numbers CAT "
+                              "liberados por perto (%s); mantido o do modelo"
+                              % (line_tag, printed, len(found[1]), ", ".join(found[1])))
 
         # Codigo de fornecedor sem preco nem valor so sai quando o texto diz o
         # que ele e: nota de END USE (0V3456) ou embalagem (caixas da Carraro).
@@ -1059,7 +1205,7 @@ def _page_kind_notes(kinds: dict | None) -> tuple[list[str], list[str]]:
 
 def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
                cat_note=None, content: str = "", exigem_serial=None,
-               words=None, page_kinds=None) -> dict[str, Any]:
+               words=None, page_kinds=None, released_keys=None) -> dict[str, Any]:
     """Forca a saida do modelo no contrato do structurer e valida o que der.
 
     O numero da invoice e o do proprio documento: 10 das 28 faturas do corpus
@@ -1126,6 +1272,8 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
     issues.extend(page_issues)
     notas.extend(page_notas)
     page_spans = (page_kinds or {}).get("pages") or []
+    shipping_spans = [(p["start"], p["end"]) for p in page_spans
+                      if p.get("kind") == pagekinds.PACKING_LIST]
 
     if entries and len(cat_numbers) == len(entries):
         authoritative = cat_numbers
@@ -1145,7 +1293,7 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
 
         raw_lines = [li for li in (inv.get("line_items") or []) if isinstance(li, dict)]
         kept, line_issues, line_notes, running, descartadas, charges = _check_lines(
-            tag, raw_lines, content, exigem_serial, word_index)
+            tag, raw_lines, content, exigem_serial, word_index, released_keys, shipping_spans)
         issues.extend(line_issues)
         # Prompt e pedido, nao contrato: se o modelo tirou uma linha de pagina
         # de embarque mesmo assim, o part number dela so existe la. Marcar,
@@ -1240,6 +1388,7 @@ def _normalise(payload: dict[str, Any], prepass_confidence, cat_numbers=None,
                 "serial_number": li.get("serial_number"),
                 "part_number_suffix": li.get("part_number_suffix"),
                 "part_number_status": li.get("part_number_status"),
+                "supplier_part_number": _s(li.get("supplier_part_number")),
                 "description": li.get("description"),
                 "quantity": _snum(li.get("quantity")),
                 "unit_price": _snum(li.get("unit_price")),
@@ -1387,7 +1536,8 @@ def _page_kinds_out(kinds: dict | None) -> list[dict]:
 
 class MockStructurer(LLMStructurer):
 
-    def structure(self, extraction: dict[str, Any], exigem_serial=None) -> dict[str, Any]:
+    def structure(self, extraction: dict[str, Any], exigem_serial=None,
+                  released_keys=None) -> dict[str, Any]:
         invoices = []
         for inv in extraction.get("invoices", []):
             line_items = []

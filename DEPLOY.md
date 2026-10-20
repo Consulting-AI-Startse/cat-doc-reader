@@ -315,7 +315,7 @@ sessão roda na cópia da aplicação extraída em `/tmp/<hash>`, que é o diret
 do `alembic.ini`; uma sessão aberta antes do deploy fica no código velho, sem a
 migração nova (o `cat-freight-poc` tropeçou nisso em 16/10).
 
-Roteiro curto, usado na `0009` (19/10). Sem marcador para preencher, de
+Roteiro curto, usado na `0009` (19/10) e com o `migrar.py` desde a `0010`. Sem marcador para preencher, de
 propósito: em 14/10 o `<servidor>` foi colado literal e custou uma volta. Host,
 banco e grupo admin são fixos, então a linha do `DATABASE_URL` vai pronta:
 
@@ -324,13 +324,16 @@ read -rs P1      # cola a 1a metade
 read -rs P2      # cola a 2a metade
 export PGPASSWORD="$(printf '%s%s' "$P1" "$P2" | tr -d '\r\n ')"; unset P1 P2
 export DATABASE_URL="postgresql+psycopg://CATIT-GenAICOE-DocumentReaderPOV-Developer@aiagent-documentreader-pov-postgresql-server.postgres.database.azure.com:5432/documentreader?sslmode=require"
-alembic upgrade head && python -c 'import os,sqlalchemy as s; c=s.create_engine(os.environ["DATABASE_URL"]).connect(); print(c.execute(s.text("select table_name, column_name from information_schema.columns where column_name in (:a,:b) order by 1,2"), dict(a="COLUNA_1",b="COLUNA_2")).fetchall())'
+python migrar.py
 ```
 
-Na última linha, troque `COLUNA_1` / `COLUNA_2` pelas colunas que a migração
-cria; a leva traz a linha já preenchida. Esperado: `Running upgrade NNNN ->
-MMMM` e as colunas listadas. Se o `alembic` não for achado, a sessão não está
-no diretório da aplicação: `cd "$(dirname "$(find /tmp -name alembic.ini | head -1)")"`.
+O `backend/migrar.py` aplica as migrações e confere o banco contra o
+`shared/models.py` inteiro, coluna por coluna, pelo catálogo -- nunca pelo
+carimbo do alembic, que pode estar na revisão nova sem a migração aplicada. Não
+tem lista de colunas para atualizar a cada leva. Esperado: `revisao: NNNN ->
+MMMM`, `0 faltando no banco` e `tudo certo`; o `pg_default_acl` sai no fim, com
+a linha `r` e a `S` do grupo admin. Se o `migrar.py` não for achado, a sessão
+não está no diretório da aplicação: `cd "$(dirname "$(find /tmp -name alembic.ini | head -1)")"`.
 Se o login falhar com `invalid format`, a colagem do token truncou: `printf '%s'
 "$PGPASSWORD" | awk -F. '{print NF}'` tem de dar 3.
 

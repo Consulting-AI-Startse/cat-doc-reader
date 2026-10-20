@@ -17,7 +17,7 @@ Esforço: **XS** < 1h · **S** ~meio dia · **M** ~1–2 dias · **L** ~1 semana
 | ~~8~~ | ~~Relatório de confiança por fornecedor~~ | M | médio | **feito** |
 | ~~9~~ | ~~Métricas de processamento por período~~ | M | médio | **feito** |
 | ~~10~~ | ~~Aritmética da linha, linhas de encargo, frete/embalagem gravados~~ | M | **muito alto** | **feito** (leva 14) |
-| 11 | Part number pela lista de PN: fornecedor × CAT, "fora da lista" na tela | M | **muito alto** | 3 |
+| ~~11~~ | ~~Part number pela lista de PN: fornecedor × CAT, "fora da lista" na tela~~ | M | **muito alto** | **feito** (leva 15) |
 | 12 | Documento com muitas faturas: fatura que falta | ? | alto | **bloqueado** (PDF 2026RFM04632) |
 | — | `Invoice Type`, `Import Process`, `CSAR`, `PFO`, `##` | ? | ? | **bloqueado** |
 | ~~—~~ | ~~Texto fora do alfabeto latino~~ | S | médio | **feito** |
@@ -104,10 +104,14 @@ conhecida para conferir (`3649717 → 19,81`).
 
 ## 3. Lista de PN Liberados (M)
 
-**Parcial (19/10):** a lista está importada e decide `requires_serial`, mas a
-checagem `released` / `not_released` por linha descrita abaixo **nunca foi
-implementada**: o `lookup` roda uma vez por documento só para o serial. É o
-item 11, e é o que o cliente chama de "aba pesquisar part number?".
+**Completo em 20/10 (leva 15).** Até ali a lista só decidia `requires_serial`.
+Agora a mesma consulta por documento devolve também os liberados, e com eles
+o structurer troca o código do fornecedor pelo part number CAT impresso na
+mesma linha (`_resolve_cat_part_number`); depois do structurer, uma segunda
+consulta marca cada linha gravada (`part_number_released`), e a tela mostra
+"fora da lista". Saiu como set `liberados` passado ao `structure()`, e não
+como o callable sugerido abaixo: o structurer continua sem banco e testável
+offline.
 
 `PN Liberados.xlsx` tem **206.769 part numbers** com descrição, em duas colunas
 (`PECA`, `NOME`), **sem hífen** — exatamente a convenção do nosso
@@ -512,7 +516,7 @@ o que falta, está em `docs/relatorio-testes-cat-2026-10.md`. Resumo:
   De carona, do mesmo relatório: a vírgula tinha o defeito do ponto
   (`5700,000` da Graziano lido como 5.700.000), e o `CAT 657-3755` da
   AutoMotionShade era descartado por não ter forma de código.
-- **11 — Part number pela lista (M, depende do 3).** "Part number errado,
+- **11 — Part number pela lista (M, depende do 3) — feito em 20/10, leva 15.** "Part number errado,
   MAIORIA": a linha imprime código do fornecedor e código do cliente
   (`148409` × `2396739`, `MN447750-31914C` × `290-2789`) e o modelo escolhe o
   do fornecedor. Resolver por linha com a lista de PN (um set `liberados`

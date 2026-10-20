@@ -34,9 +34,9 @@ admin do Entra. E a VM nao alcanca o Postgres (fora da allow-list), entao o
 unico caminho e o webssh com token de administrador.
 
 **Para a VM, mande o roteiro curto do `DEPLOY.md`** (usado na 0009, 19/10):
-duas metades do token, o `DATABASE_URL` do admin colado pronto, e `alembic
-upgrade head` com a conferencia pelo catalogo na mesma linha, no webssh aberto
-**depois** do deploy do backend. A primeira versao da leva 14 tinha o dobro de
+duas metades do token, o `DATABASE_URL` do admin colado pronto, e `python
+migrar.py` (desde a 0010: aplica e confere o banco contra o modelo inteiro),
+no webssh aberto **depois** do deploy do backend. A primeira versao da leva 14 tinha o dobro de
 comandos (host derivado do `/proc/1/environ`, `cd` com `find`, `alembic
 current` antes) e o Luis cobrou; o `cat-freight-poc` ja fazia assim. Os
 tropecos abaixo continuam valendo como diagnostico quando o curto falhar.
