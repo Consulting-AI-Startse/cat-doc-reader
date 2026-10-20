@@ -18,7 +18,7 @@ Esforço: **XS** < 1h · **S** ~meio dia · **M** ~1–2 dias · **L** ~1 semana
 | ~~9~~ | ~~Métricas de processamento por período~~ | M | médio | **feito** |
 | ~~10~~ | ~~Aritmética da linha, linhas de encargo, frete/embalagem gravados~~ | M | **muito alto** | **feito** (leva 14) |
 | ~~11~~ | ~~Part number pela lista de PN: fornecedor × CAT, "fora da lista" na tela~~ | M | **muito alto** | **feito** (leva 15) |
-| 12 | Documento com muitas faturas: fatura que falta | ? | alto | **bloqueado** (PDF 2026RFM04632) |
+| 12 | **Leva 16:** documento com muitas faturas, fatura que falta | ? | alto | **bloqueado** (PDF e `raw_extraction` do 2026RFM04632) |
 | — | `Invoice Type`, `Import Process`, `CSAR`, `PFO`, `##` | ? | ? | **bloqueado** |
 | ~~—~~ | ~~Texto fora do alfabeto latino~~ | S | médio | **feito** |
 | — | Word/Excel | ? | ? | **escopo indefinido** |
@@ -522,9 +522,26 @@ o que falta, está em `docs/relatorio-testes-cat-2026-10.md`. Resumo:
   do fornecedor. Resolver por linha com a lista de PN (um set `liberados`
   passado ao structurer, da mesma consulta do serial), `supplier_part_number`
   no item, e status `not_released` na tela como nota.
-- **12 — Muitas faturas (bloqueado).** 2026RFM04632 saiu com 14 de 15.
-  Hipótese principal: resposta truncada em `max_tokens = 16000`, e o
-  `finish_reason` não é lido. Precisa do PDF.
+- **12 — Muitas faturas: a leva 16 (bloqueado).** 2026RFM04632 saiu com 14
+  de 15; a fatura que faltou, reenviada sozinha, saiu certa. Esforço só se
+  mede depois do diagnóstico.
+
+  **Para destravar:** o PDF do 2026RFM04632 e o `raw_extraction` do documento
+  gravado (o `GET /documents/{id}/raw`), que estão do lado do Luis e da CAT.
+
+  **Hipóteses, na ordem de teste:**
+  1. resposta do modelo truncada em `max_tokens = 16000` -- o JSON por
+     fatura é verboso, e o `finish_reason` da resposta não é lido, então o
+     truncamento não deixaria rastro se o modelo fechasse o JSON cedo;
+  2. o modelo fundiu duas faturas numa;
+  3. a fatura caiu numa página classificada como embarque (`pages.py`).
+
+  **O que dá para fazer antes do PDF, barato:** ler o `finish_reason` e
+  registrar "resposta truncada" como problema quando for `length`; e
+  generalizar o aviso que hoje só existe para `CAT Invoice#` -- contar os
+  rótulos distintos de número de fatura no texto e comparar com as invoices
+  devolvidas. Se o truncamento se confirmar, a correção é chamar o modelo por
+  grupo de páginas (o `pages.py` já dá os spans).
 
 ---
 
