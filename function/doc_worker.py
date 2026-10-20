@@ -11,7 +11,7 @@ from shared.confidence import summarise
 from shared.config import settings
 from shared.db import SessionLocal
 from shared.dedupe import find_original, normalise_invoice_number, normalise_supplier
-from shared.parts import lookup as lookup_parts
+from shared.parts import lookup as lookup_parts, released_flags
 from shared.models import (
     Document,
     DocumentEvent,
@@ -44,16 +44,17 @@ CONFIDENCE_THRESHOLD = 0.90
 logger = logging.getLogger("doc_worker")
 
 
-def _pecas_com_serial(db: Session, content: str) -> set[str]:
-    """Chaves, entre as citadas no texto, que a lista marca como exigindo serial.
+def _consulta_pn(db: Session, content: str) -> tuple[set[str], set[str]]:
+    """(exigem serial, liberados): chaves, entre as citadas no texto, que a
+    lista marca como exigindo serial, e todas as que estao nela.
 
-    Uma consulta por documento. Vazio quando a lista ainda nao foi importada,
-    e ai o caminho segue exatamente como antes -- a feature nao pode depender
-    de a lista existir para o resto funcionar.
+    Uma consulta por documento serve as duas perguntas. Vazias quando a lista
+    ainda nao foi importada, e ai o caminho segue exatamente como antes -- a
+    feature nao pode depender de a lista existir para o resto funcionar.
     """
     candidatos = candidate_part_numbers(content)
     if not candidatos:
-        return set()
+        return set(), set()
     try:
         achados = lookup_parts(db, candidatos)
     except Exception as exc:  # noqa: BLE001 - lista ausente nao derruba o documento
@@ -63,8 +64,36 @@ def _pecas_com_serial(db: Session, content: str) -> set[str]:
         # o process_document comitou o 'processing' antes de chegar aqui.
         db.rollback()
         logger.warning("lista de part numbers indisponivel (%s); serial nao sera pedido", exc)
-        return set()
-    return {k for k, linha in achados.items() if linha.requires_serial}
+        return set(), set()
+    return {k for k, linha in achados.items() if linha.requires_serial}, set(achados)
+
+
+def _marca_liberados(db: Session, result: dict) -> list[list[bool | None]]:
+    """part_number_released de cada linha gravada, por invoice, e a nota de
+    quem ficou fora da lista. Nota, nunca problema nem descarte: codigo de
+    fornecedor ('15.1301.466') nunca estara na lista e e item real -- mandar
+    para revisao toda fatura de fornecedor seria ruido.
+
+    Depois do structurer, e nao antes, porque e o part number FINAL que se
+    julga: o que o modelo devolveu, ou o CAT que a resolucao pos no lugar.
+    """
+    invoices = result.get("invoices") or []
+    pns = [li.get("part_number") for inv in invoices for li in inv.get("line_items") or []]
+    try:
+        flags = released_flags(db, pns)
+    except Exception as exc:  # noqa: BLE001 - lista ausente nao derruba o documento
+        db.rollback()
+        logger.warning("lista de part numbers indisponivel (%s); linhas sem marca", exc)
+        flags = [None] * len(pns)
+    fora = sorted({str(pn) for pn, f in zip(pns, flags) if f is False})
+    if fora:
+        result.setdefault("notes", []).append(
+            "%d part number(s) fora da lista de liberados: %s"
+            % (len(fora), "; ".join(fora[:10]) + (" ..." if len(fora) > 10 else "")))
+    out, it = [], iter(flags)
+    for inv in invoices:
+        out.append([next(it) for _ in inv.get("line_items") or []])
+    return out
 
 
 def build_extractor() -> DocumentExtractor:
@@ -138,12 +167,13 @@ def process_document(
         # peca exige serial. E deterministico e custa uma consulta -- perguntar
         # ao modelo "esta fatura e de motor?" devolveria o palpite que a coluna
         # requires_serial existe justamente para eliminar.
-        exigem_serial = _pecas_com_serial(db, extraction.get("content") or "")
-        result = structurer.structure(extraction, exigem_serial)
+        exigem_serial, liberados = _consulta_pn(db, extraction.get("content") or "")
+        result = structurer.structure(extraction, exigem_serial, liberados)
+        liberadas = _marca_liberados(db, result)
 
         doc.invoices.clear()
         duplicates = []
-        for inv in result.get("invoices", []):
+        for inv, flags in zip(result.get("invoices", []), liberadas):
             lines = inv.get("line_items", [])
             invoice = Invoice(
                 invoice_number=inv.get("invoice_number"),
@@ -159,10 +189,12 @@ def process_document(
                 **summarise(inv.get("field_confidence"),
                             [li.get("field_confidence") for li in lines]),
             )
-            for li in lines:
+            for li, released in zip(lines, flags):
                 invoice.line_items.append(
                     InvoicePartNumberItem(
                         part_number=li.get("part_number"),
+                        supplier_part_number=li.get("supplier_part_number"),
+                        part_number_released=released,
                         serial_number=li.get("serial_number"),
                         description=li.get("description"),
                         quantity=_dec(li.get("quantity")),

@@ -154,6 +154,12 @@ class InvoicePartNumberItem(Base):
     )
 
     part_number: Mapped[str | None] = mapped_column(String(64), index=True)
+    # O codigo do fornecedor quando a linha imprime os dois e o part number CAT
+    # venceu (0010). Text: codigo de fornecedor nao tem tamanho previsivel.
+    supplier_part_number: Mapped[str | None] = mapped_column(Text)
+    # O part number final esta na lista de liberados? Nulo quando nao ha
+    # lista importada para julgar. Nota na tela, nunca descarte.
+    part_number_released: Mapped[bool | None] = mapped_column(sa.Boolean)
     # Um registro por serial, nao uma lista: motor repete o MESMO part number,
     # uma vez para cada serial. A fatura 93872204 traz QTY 7 de 6522586 e sete
     # seriais, e vira sete linhas com quantidade 1.

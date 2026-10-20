@@ -34,6 +34,11 @@ export type FieldConfidenceMap = Record<string, FieldConfidence>;
 // Uma linha de part number (o grão do output). Todos os campos podem vir nulos.
 export interface LineItem {
   part_number: string | null;
+  /** O código do fornecedor quando a linha imprime os dois e o part number CAT
+   *  venceu. Migração 0010. */
+  supplier_part_number: string | null;
+  /** O part number está na lista de liberados? Nulo sem lista para julgar. */
+  part_number_released: boolean | null;
   /** Um registro por serial: motor repete o mesmo part number. */
   serial_number: string | null;
   description: string | null;
@@ -208,6 +213,7 @@ export interface Metrics {
 
 export interface LineInput {
   part_number: string | null;
+  supplier_part_number: string | null;
   serial_number: string | null;
   description: string | null;
   quantity: string | null;

@@ -24,6 +24,7 @@ const inputCls =
 
 interface LineForm {
   part_number: string;
+  supplier_part_number: string;
   serial_number: string;
   description: string;
   quantity: string;
@@ -45,9 +46,12 @@ interface LineForm {
   // Unitário e total com encargos, como o servidor calculou. Só leitura: o
   // PATCH refaz o rateio do que for salvo, então não vão no payload.
   _landed: { unit: string; amount: string };
+  // "Está na lista de liberados?", como o servidor julgou. Só leitura: o PATCH
+  // reconsulta a lista com o part number salvo.
+  _released: boolean | null;
 }
 
-type LineField = Exclude<keyof LineForm, "_fc" | "_orig" | "_landed">;
+type LineField = Exclude<keyof LineForm, "_fc" | "_orig" | "_landed" | "_released">;
 
 interface InvoiceForm {
   invoice_number: string;
@@ -84,6 +88,7 @@ function buildForm(d: Detail): InvoiceForm[] {
       line_items: inv.line_items.map((li) => {
         const values = {
           part_number: str(li.part_number),
+          supplier_part_number: str(li.supplier_part_number),
           serial_number: str(li.serial_number),
           description: str(li.description),
           quantity: str(li.quantity),
@@ -104,6 +109,7 @@ function buildForm(d: Detail): InvoiceForm[] {
           _fc: li.field_confidence,
           _orig: values,
           _landed: { unit: str(li.unit_price_landed), amount: str(li.amount_landed) },
+          _released: li.part_number_released,
         };
       }),
     };
@@ -124,6 +130,7 @@ function toPayload(invoices: InvoiceForm[]): DocumentUpdate {
       field_confidence: withCorrections(inv._fc, inv._orig, inv as unknown as Record<string, string>),
       line_items: inv.line_items.map((l) => ({
         part_number: orNull(l.part_number),
+        supplier_part_number: orNull(l.supplier_part_number),
         serial_number: orNull(l.serial_number),
         description: orNull(l.description),
         quantity: orNull(l.quantity),
@@ -151,25 +158,31 @@ function toPayload(invoices: InvoiceForm[]): DocumentUpdate {
 const lineKey = (pn: unknown, serial: unknown, qty: unknown, unit: unknown) =>
   [str(pn).trim(), str(serial).trim(), Number(qty), Number(unit)].join("|");
 
+type ServerLine = { landed: { unit: string; amount: string }; released: boolean | null };
+
 function withLanded(form: InvoiceForm[], saved: Detail): InvoiceForm[] {
-  const pool = new Map<string, { unit: string; amount: string }[]>();
+  const pool = new Map<string, ServerLine[]>();
   for (const inv of saved.invoices) {
     for (const li of inv.line_items) {
       const k = lineKey(li.part_number, li.serial_number, li.quantity, li.unit_price);
-      pool.set(k, [...(pool.get(k) ?? []), { unit: str(li.unit_price_landed), amount: str(li.amount_landed) }]);
+      pool.set(k, [...(pool.get(k) ?? []), {
+        landed: { unit: str(li.unit_price_landed), amount: str(li.amount_landed) },
+        released: li.part_number_released,
+      }]);
     }
   }
   return form.map((inv) => ({
     ...inv,
     line_items: inv.line_items.map((l) => {
       const hit = pool.get(lineKey(l.part_number, l.serial_number, l.quantity, l.unit_price))?.shift();
-      return { ...l, _landed: hit ?? { unit: "", amount: "" } };
+      return { ...l, _landed: hit?.landed ?? { unit: "", amount: "" }, _released: hit?.released ?? null };
     }),
   }));
 }
 
 const emptyLine = (): LineForm => ({
   part_number: "",
+  supplier_part_number: "",
   serial_number: "",
   description: "",
   quantity: "",
@@ -187,6 +200,7 @@ const emptyLine = (): LineForm => ({
   _fc: null,
   _orig: {},
   _landed: { unit: "", amount: "" },
+  _released: null,
 });
 
 export function DocumentDetail() {
@@ -552,7 +566,10 @@ export function DocumentDetail() {
                           <tr key={li}>
                             {editable ? (
                               <>
-                                <Cell><input className={`${inputCls} ${fcClass(l._fc?.part_number)}`} title={fcTitle(l._fc?.part_number)} value={l.part_number} onChange={(e) => setLine(i, li, "part_number", e.target.value)} /></Cell>
+                                <Cell>
+                                  <input className={`${inputCls} ${fcClass(l._fc?.part_number)}`} title={fcTitle(l._fc?.part_number)} value={l.part_number} onChange={(e) => setLine(i, li, "part_number", e.target.value)} />
+                                  <PartNumberMeta supplier={l.supplier_part_number} released={l._released} />
+                                </Cell>
                                 <Cell><input className={`${inputCls} ${fcClass(l._fc?.serial_number)}`} title={fcTitle(l._fc?.serial_number)} value={l.serial_number} onChange={(e) => setLine(i, li, "serial_number", e.target.value)} /></Cell>
                                 <Cell wide><input className={inputCls} value={l.description} onChange={(e) => setLine(i, li, "description", e.target.value)} /></Cell>
                                 <Cell><input className={`${inputCls} ${fcClass(l._fc?.quantity)}`} title={fcTitle(l._fc?.quantity)} inputMode="decimal" value={l.quantity} onChange={(e) => setLine(i, li, "quantity", e.target.value)} /></Cell>
@@ -574,7 +591,10 @@ export function DocumentDetail() {
                               </>
                             ) : (
                               <>
-                                <td className={`py-1.5 pr-2 font-mono text-neutral-700 ${fcClass(l._fc?.part_number)}`} title={fcTitle(l._fc?.part_number)}>{l.part_number || EMPTY}</td>
+                                <td className={`py-1.5 pr-2 font-mono text-neutral-700 ${fcClass(l._fc?.part_number)}`} title={fcTitle(l._fc?.part_number)}>
+                                  {l.part_number || EMPTY}
+                                  <PartNumberMeta supplier={l.supplier_part_number} released={l._released} />
+                                </td>
                                 <td className={`py-1.5 pr-2 font-mono text-neutral-600 ${fcClass(l._fc?.serial_number)}`} title={fcTitle(l._fc?.serial_number)}>{l.serial_number || EMPTY}</td>
                                 <td className="py-1.5 pr-2 text-neutral-800">{l.description || EMPTY}</td>
                                 <td className={`py-1.5 pr-2 text-right tabular text-neutral-600 ${fcClass(l._fc?.quantity)}`} title={fcTitle(l._fc?.quantity)}>{l.quantity || EMPTY}</td>
@@ -723,6 +743,26 @@ function InvoiceConfidence({ inv }: { inv: Detail["invoices"][number] | undefine
       {flagged > 0 && <span className="ml-1 font-medium text-amber-700">· {flagged} campo(s) a conferir</span>}
       {corrected > 0 && <span className="ml-1 text-emerald-700">· {corrected} corrigido(s)</span>}
     </p>
+  );
+}
+
+// Debaixo do part number: o código do fornecedor que ele substituiu, e o selo
+// de "fora da lista". Nota, não erro: código de fornecedor nunca estará na
+// lista de liberados e é item real.
+function PartNumberMeta({ supplier, released }: { supplier: string; released: boolean | null }) {
+  if (!supplier && released !== false) return null;
+  return (
+    <div className="mt-0.5 flex flex-wrap items-center gap-1 font-sans text-[10px] leading-tight">
+      {released === false && (
+        <span
+          className="rounded bg-amber-100 px-1 py-0.5 font-medium text-amber-800"
+          title="Este part number não está na lista de part numbers liberados"
+        >
+          fora da lista
+        </span>
+      )}
+      {supplier && <span className="text-neutral-400" title="Código do fornecedor impresso na mesma linha">forn.: {supplier}</span>}
+    </div>
   );
 }
 
