@@ -33,6 +33,14 @@ partes: `printf '%s' "$T" | awk -F. '{print NF}'` tem de dar **3**.
 admin do Entra. E a VM nao alcanca o Postgres (fora da allow-list), entao o
 unico caminho e o webssh com token de administrador.
 
+**Para a VM, mande o roteiro curto do `DEPLOY.md`** (usado na 0009, 19/10):
+duas metades do token, o `DATABASE_URL` do admin colado pronto, e `alembic
+upgrade head` com a conferencia pelo catalogo na mesma linha, no webssh aberto
+**depois** do deploy do backend. A primeira versao da leva 14 tinha o dobro de
+comandos (host derivado do `/proc/1/environ`, `cd` com `find`, `alembic
+current` antes) e o Luis cobrou; o `cat-freight-poc` ja fazia assim. Os
+tropecos abaixo continuam valendo como diagnostico quando o curto falhar.
+
 **Roteiro da migracao que funcionou (0007, 01/10), e os quatro tropecos dele:**
 
 - o usuario do banco e o **grupo admin do Entra**, `CATIT-GenAICOE-DocumentReaderPOV-Developer`

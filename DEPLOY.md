@@ -310,22 +310,34 @@ O nome do grupo admin sai daqui (o subcomando antigo era `ad-admin`):
 az postgres flexible-server microsoft-entra-admin list -g aicoe_aiagent_documentreader_pov -s aiagent-documentreader-pov-postgresql-server --query "[0].principalName" -o tsv
 ```
 
-**No webssh do fastapi**, no diretório que tem o `alembic.ini`:
+**No webssh do fastapi, aberto DEPOIS que o deploy do backend terminou.** A
+sessão roda na cópia da aplicação extraída em `/tmp/<hash>`, que é o diretório
+do `alembic.ini`; uma sessão aberta antes do deploy fica no código velho, sem a
+migração nova (o `cat-freight-poc` tropeçou nisso em 16/10).
 
-Sem marcador para preencher, de propósito: em 14/10 o `<servidor>` foi colado
-literal e o erro (`failed to resolve host '<servidor>...'`) custou uma volta. O
-host sai do `DATABASE_URL` do próprio app; o usuário é o grupo admin.
+Roteiro curto, usado na `0009` (19/10). Sem marcador para preencher, de
+propósito: em 14/10 o `<servidor>` foi colado literal e custou uma volta. Host,
+banco e grupo admin são fixos, então a linha do `DATABASE_URL` vai pronta:
 
 ```bash
-H=$(tr '\0' '\n' < /proc/1/environ | grep '^DATABASE_URL=' | sed 's/.*@//; s/[:/?].*//')
-echo "host=[$H]"       # tem de terminar em .postgres.database.azure.com
-export DATABASE_URL="postgresql+psycopg://CATIT-GenAICOE-DocumentReaderPOV-Developer@$H:5432/documentreader?sslmode=require"
 read -rs P1      # cola a 1a metade
 read -rs P2      # cola a 2a metade
-PGPASSWORD=$(printf '%s%s' "$P1" "$P2" | tr -d '\r\n '); export PGPASSWORD; unset P1 P2
-echo "${#PGPASSWORD} $(printf '%s' "$PGPASSWORD" | awk -F. '{print NF}')"   # ~4500 e 3
-alembic current        # tem de imprimir a revisao ANTERIOR, sem erro
-alembic upgrade head
+export PGPASSWORD="$(printf '%s%s' "$P1" "$P2" | tr -d '\r\n ')"; unset P1 P2
+export DATABASE_URL="postgresql+psycopg://CATIT-GenAICOE-DocumentReaderPOV-Developer@aiagent-documentreader-pov-postgresql-server.postgres.database.azure.com:5432/documentreader?sslmode=require"
+alembic upgrade head && python -c 'import os,sqlalchemy as s; c=s.create_engine(os.environ["DATABASE_URL"]).connect(); print(c.execute(s.text("select table_name, column_name from information_schema.columns where column_name in (:a,:b) order by 1,2"), dict(a="COLUNA_1",b="COLUNA_2")).fetchall())'
+```
+
+Na última linha, troque `COLUNA_1` / `COLUNA_2` pelas colunas que a migração
+cria; a leva traz a linha já preenchida. Esperado: `Running upgrade NNNN ->
+MMMM` e as colunas listadas. Se o `alembic` não for achado, a sessão não está
+no diretório da aplicação: `cd "$(dirname "$(find /tmp -name alembic.ini | head -1)")"`.
+Se o login falhar com `invalid format`, a colagem do token truncou: `printf '%s'
+"$PGPASSWORD" | awk -F. '{print NF}'` tem de dar 3.
+
+Depois, na VM, uma linha só:
+
+```powershell
+az webapp restart -g aicoe_aiagent_documentreader_pov -n aiagent-documentreader-pov-fastapi-appservice; az functionapp restart -g aicoe_aiagent_documentreader_pov -n aiagent-documentreader-pov-backend-function
 ```
 
 O `read -rs` não ecoa e não deixa o token no histórico. O `tr -d` tira o `\r`

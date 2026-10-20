@@ -79,6 +79,13 @@ Para cada leva de mudancas que precisa ir para a VM, produza **quatro coisas**:
      com o teste certo. Os checks se reconfiguram desde entao, mas um script
      novo pode nao.
 
+   **Confira tudo de que o script depende ANTES de escrever a arvore.** Na
+   leva 14 o `raw-civ-cap.json` estava numa subpasta de `Downloads`, e o script
+   so descobriu no passo 6, com os 11 arquivos ja escritos: a leva estava
+   certa, mas a mensagem final foi "a arvore ja foi escrita, desfaca assim".
+   Fixture, venv e `build.ps1` se conferem no passo 3, junto com a base -- e o
+   fixture se procura em `Downloads` recursivamente, nao so na raiz.
+
    **Teste o script antes de mandar.** Reconstrua a arvore da CAT a partir dos
    blobs que ela reportou (`git cat-file -p <blob>` monta cada arquivo), rode o
    script contra esse repo de teste e confira os tres caminhos: aplica limpo,

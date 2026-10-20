@@ -12,6 +12,84 @@ estado do PR.
 
 ---
 
+## 2026-10-19 — leva 14: aritmética da linha, linhas de encargo, frete/embalagem gravados · **merjado** (PR #34 da CAT), migração 0009 aplicada
+
+**Merjada em 19/10** como o PR #34 da CAT; a `main` de lá ficou em
+`f8927c7d684308881a4fcde19aaf15ac43046e4e`, conferida na VM com os blobs de
+`structurer.py` (`9ec32fa9a7bd`), `landed.py` (`2aaaf4c9845b`) e da `0009`
+(`ad8da1f3aade`) -- os três no "depois" desta leva. **Migração `0008 -> 0009`
+aplicada em produção**, confirmada pelo Luis em 19/10 com a conferência pelo
+catálogo do roteiro curto (as 4 colunas da 0009 e as `unit` / `unit_weight` da
+0008, que ficam confirmadas também).
+
+**O roteiro de migração encolheu nesta leva.** O primeiro que mandei tinha
+comandos demais: derivava o host do `/proc/1/environ` com `echo` de
+conferência, fazia `cd` com `find` e `source antenv`, e rodava `alembic
+current`, `alembic upgrade head` e a conferência em três passos. O Luis apontou
+que o `cat-freight-poc` faz o mesmo com menos, e lá estavam as três diferenças:
+o `DATABASE_URL` do admin é colado pronto (host, banco e grupo são fixos e já
+estavam no `DEPLOY.md`), o webssh aberto **depois** do deploy do backend já
+roda no diretório da aplicação nova, e upgrade e conferência vão numa linha só.
+O `DEPLOY.md` e a skill `operar-azure-cat` passaram a trazer essa versão; o
+`DEPLOY.md` vai para a CAT na próxima leva.
+
+**Aplicação na VM:** o script escreveu e conferiu os 11 arquivos, rodou o
+`build.ps1`, o `import function_app` e o `check_rules.py`, e parou no
+`check_structurer.py` porque o `raw-civ-cap.json` não estava na raiz de
+`Downloads` (estava numa subpasta). A árvore estava certa; o check foi rodado
+à mão. Para a próxima: o script deveria procurar o arquivo em `Downloads`
+recursivamente antes de parar, ou checar a presença dele no passo 3, antes de
+escrever.
+
+Item 10 do `BACKLOG.md`, do relatório de testes da CAT
+(`docs/relatorio-testes-cat-2026-10.md`). PR #2 deste repo. 11 arquivos (2
+novos), por ZIP em base64 + script autocontido. Branch sugerida:
+`feat/leva-14-aritmetica-e-encargos`. **Traz a migração `0009`** (só colunas
+nulas, sem `GRANT`) e toca `shared/shared/`, então o script roda o `build.ps1`.
+
+**Ordem em produção, que importa:** worker e backend passam a ler e gravar as
+colunas da `0009`. Publicados antes dela, todo documento processado cai em
+`error` e a API de documentos responde 500. O `app-deploy` publica os três
+juntos, então: merge → migração no webssh assim que o backend subir → restart
+do fastapi e da function → reenviar o que caiu no intervalo. A conferência
+pelo catálogo inclui `unit` e `unit_weight`, porque a `0008` da leva 12 nunca
+foi confirmada aqui.
+
+**Base prevista, não pedida à VM**, como na leva 13: os 9 arquivos existentes
+estão no "depois" registrado das levas 12 e 13, e nenhum caminho espelhado
+mudou aqui entre a leva 13 e o PR #2. O script confere blob a blob e para sem
+escrever num `DIVERGE`, e exige a `main` como branch atual.
+
+Script testado com Windows PowerShell 5.1 e git do Windows, checkout CRLF,
+num clone na base: `.b64` corrompido, branch errada, árvore suja e base
+divergente param sem tocar o repo; aplica limpo (com `build.ps1`, conferindo
+`landed.py` nos dois `shared` vendorizados); e reconhece a leva já aplicada.
+O `.b64` do script passou pelo `certutil -decode` e voltou byte a byte. O
+passo 6 (checks em Python) foi rodado aqui no Linux, não no Windows: a cópia
+de teste o pula, e é a única diferença além dos dois caminhos.
+
+| | |
+|---|---|
+| SHA-256 do `aplicar-leva14.b64` | `afde790491f6f84ce515d8e95733966b198e5c66f37c122941cb69322accf988` |
+| SHA-256 do `leva14-arquivos.b64` | `d74c8d8d66cca345dfdcc774df93d4645b4c33d0984033ad31fa4e38c7fc08bd` |
+| SHA-256 do `leva14-arquivos.zip` | `d9bcd7fbf852a2f770001b3f48be037e88942235873f5f76a0eeb8c23f53c818` |
+
+| arquivo | base | depois |
+|---|---|---|
+| `function/pipeline/structurer.py` | `9aacfb1d1035` | `9ec32fa9a7bd` |
+| `function/doc_worker.py` | `90e09e2e7fab` | `e04fd1bf2141` |
+| `shared/shared/landed.py` | `(novo)` | `2aaaf4c9845b` |
+| `shared/shared/models.py` | `af5cd38f9e09` | `1d178013382f` |
+| `backend/app/api/documents.py` | `4f1febe676c0` | `e86365c8451f` |
+| `backend/alembic/versions/0009_invoice_charges_and_landed.py` | `(novo)` | `ad8da1f3aade` |
+| `db/db-setup-v2.sql` | `f66a3bd291ec` | `5a42ecf10468` |
+| `frontend/src/pages/DocumentDetail.tsx` | `e0e1f80c1313` | `41c25c2ebc2e` |
+| `frontend/src/types/document.ts` | `f6edbbce1e65` | `ca1ae141efc7` |
+| `check_rules.py` | `53aefcb0b521` | `9c17db14090b` |
+| `check_structurer.py` | `20324759de46` | `f984d84c8e76` |
+
+---
+
 ## 2026-10-14 — leva 13: "provavelmente não é invoice" e aba Performance · **merjado**
 
 **Merjada em 14/10.** Sem migração: entra em produção com o `app-deploy`.
