@@ -12,7 +12,21 @@ estado do PR.
 
 ---
 
-## 2026-10-20 — leva 15: part number pela lista de PN, e `migrar.py` · **pacote pronto**, migração 0010
+## 2026-10-20 — leva 15: part number pela lista de PN, e `migrar.py` · **merjado** (PR #35 da CAT), migração 0010 a confirmar
+
+**Merjada em 20/10** como o PR #35 da CAT; a `main` de lá ficou em `baa444f`,
+conferida na VM com os blobs de `structurer.py` (`a09118a82f28`), `parts.py`
+(`946ce7fa690f`) e `migrar.py` (`3eabb801e9f2`), os três no "depois" desta
+leva. **A migração `0009 -> 0010` ainda não foi confirmada aqui.**
+
+**Tropeço na aplicação, e o motivo de a checagem ter vindo para antes:** o
+script parou no passo 3, sem escrever, porque nenhum `raw-civ-cap.json` em
+`Downloads` (nem em subpastas) era da extração `3dce38ec`. O fixture foi
+mandado em base64 (`raw-civ-cap.b64`, SHA-256 `5cf531a7...`; o `.json`
+decodificado, `ab84beb6...`) e decodificado com `certutil -f`, porque sem o
+`-f` o `certutil` não sobrescreve o arquivo antigo. Corolário para a leva 14:
+o `check_structurer.py` rodado à mão lá provavelmente usou outra extração, e
+não vale como conferência; a seção 14 dele rodou certa aqui, no script da 15.
 
 Item 11 do `BACKLOG.md` (PR #4 deste repo): o part number CAT impresso junto
 vence o código do fornecedor, e a tela marca "fora da lista". 14 arquivos (2
