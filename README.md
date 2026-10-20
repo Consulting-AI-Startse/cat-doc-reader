@@ -49,7 +49,8 @@ shared/              fonte unica do dominio
 backend/             FastAPI -> App Service
   app/api/           rotas /documents, /dashboard, /parts e /suppliers
   app/processing.py  chama a function (nao processa)
-  alembic/versions/  migracoes 0001..0009
+  alembic/versions/  migracoes 0001..0010
+  migrar.py          aplica e confere o schema contra o modelo (webssh, DEPLOY.md)
 function/            Function App (worker de IA)
   function_app.py    os tres gatilhos acima
   doc_worker.py      orquestra: storage -> extractor -> structurer -> banco
@@ -58,7 +59,7 @@ function/            Function App (worker de IA)
 frontend/            React + Vite + Tailwind -> App Service
   src/pages/         Dashboard (lista e upload), DocumentDetail (revisao),
                      PartNumbers, Suppliers, Performance (metricas do agente)
-db/db-setup-v2.sql   schema achatado na head 0009 (GERADO, ver STRUCTURE.md)
+db/db-setup-v2.sql   schema achatado na head 0010 (GERADO, ver STRUCTURE.md)
 aiagent-documentreader-infrastructure-azure/
   workflows/         app-ci.yml e app-deploy.yml: o CI/CD de aplicacao da CAT
                      (la eles rodam de .github/workflows/, ver CLAUDE.md)

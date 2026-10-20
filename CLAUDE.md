@@ -247,6 +247,13 @@ lugar do Azure OpenAI — está em `docs/modo-local.md`, com a matriz de setting
   **se o filtro derrubar uma linha legítima, a soma para de fechar e o
   documento vai para revisão sozinho.** É o que separa um filtro auditável de
   um filtro cego — tem teste travando isso (`check_structurer.py`, seção 10d).
+- **Quando a linha imprime dois códigos, o part number CAT da lista vence.**
+  O do fornecedor fica em `supplier_part_number`. Na mesma linha da tabela é
+  prova e vira nota; só perto (até 400 caracteres) é hipótese e vai para
+  revisão; dois candidatos, o modelo fica e o revisor decide. Ocorrência em
+  página de embarque não conta: no CIV ela trazia um número de consignação da
+  DHL com forma de part number. E "fora da lista" é selo na tela, nunca
+  descarte.
 - **O amount impresso é a âncora da linha; o unitário é que se ajusta.** Quando
   `qty × unit ≠ amount` e a conta mostra qual número está errado (o unitário é o
   valor da linha, ou é preço por 10/100/1000), o `_derive_line_numbers` grava
