@@ -12,15 +12,26 @@ estado do PR.
 
 ---
 
-## 2026-10-19 — leva 14: aritmética da linha, linhas de encargo, frete/embalagem gravados · **merjado** (PR #34 da CAT), migração 0009 a confirmar
+## 2026-10-19 — leva 14: aritmética da linha, linhas de encargo, frete/embalagem gravados · **merjado** (PR #34 da CAT), migração 0009 aplicada
 
 **Merjada em 19/10** como o PR #34 da CAT; a `main` de lá ficou em
 `f8927c7d684308881a4fcde19aaf15ac43046e4e`, conferida na VM com os blobs de
 `structurer.py` (`9ec32fa9a7bd`), `landed.py` (`2aaaf4c9845b`) e da `0009`
-(`ad8da1f3aade`) -- os três no "depois" desta leva. **A migração `0008 -> 0009`
-ainda não foi confirmada aqui:** conferir pelo catálogo as 6 colunas
-(`freight`, `packaging_cost`, `unit_price_landed`, `amount_landed`, e as `unit`
-/ `unit_weight` da 0008, também nunca confirmadas).
+(`ad8da1f3aade`) -- os três no "depois" desta leva. **Migração `0008 -> 0009`
+aplicada em produção**, confirmada pelo Luis em 19/10 com a conferência pelo
+catálogo do roteiro curto (as 4 colunas da 0009 e as `unit` / `unit_weight` da
+0008, que ficam confirmadas também).
+
+**O roteiro de migração encolheu nesta leva.** O primeiro que mandei tinha
+comandos demais: derivava o host do `/proc/1/environ` com `echo` de
+conferência, fazia `cd` com `find` e `source antenv`, e rodava `alembic
+current`, `alembic upgrade head` e a conferência em três passos. O Luis apontou
+que o `cat-freight-poc` faz o mesmo com menos, e lá estavam as três diferenças:
+o `DATABASE_URL` do admin é colado pronto (host, banco e grupo são fixos e já
+estavam no `DEPLOY.md`), o webssh aberto **depois** do deploy do backend já
+roda no diretório da aplicação nova, e upgrade e conferência vão numa linha só.
+O `DEPLOY.md` e a skill `operar-azure-cat` passaram a trazer essa versão; o
+`DEPLOY.md` vai para a CAT na próxima leva.
 
 **Aplicação na VM:** o script escreveu e conferiu os 11 arquivos, rodou o
 `build.ps1`, o `import function_app` e o `check_rules.py`, e parou no
