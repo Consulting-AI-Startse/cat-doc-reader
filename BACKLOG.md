@@ -33,6 +33,8 @@ PR neste repo (19/10) e ficam sem caminho.
 | 18 | Linha sem valor (N/C) com forma de código não é item | S | alto | 3 (lista de PN) | — |
 | 19 | Sufixo do part number: gravar a base, decidir pela lista | M | alto | 3 (lista de PN); migração 0011 | — |
 | 20 | Encargos: valor de rodapé determinístico, texto de embalagem na invoice, decisão do rateio | M | alto | resposta da CAT sobre o rateio | — |
+| 21 | Ler o `finish_reason` da resposta do modelo | XS | alto | — | — |
+| 22 | Regressão contra o gabarito: os 28 `raw` da VM, 3 rodadas, acurácia por campo | M | **muito alto** | 28 `raw` da VM, planilha e PDFs | — |
 
 **A inversão:** o item 3 é M, não S, mas vem antes do 5 porque a lista de PN é a
 fonte da verdade da validação e porque destrava o item 4 de graça.
@@ -600,6 +602,39 @@ lista de PN liberados é o árbitro quando a forma do texto não basta.
 Segundo caso do item 12: **CIV FFAU5762790, 10 de 18 faturas.** Reforça a
 hipótese do truncamento (18 faturas é mais JSON que 15). Pedir o
 `raw_extraction` dele também.
+
+## 21 e 22 — o que falta para medir (22/10)
+
+Decididos ao avaliar quão confiável é a leva 16 a 20. Os itens corrigem o
+que a CAT mostrou em slide, e o que a CAT mostrou é uma amostra que ninguém
+mediu: cada leva é validada por teste sintético que reproduz o caso do slide,
+e isso prova que o caso passa, não que os outros 27 PDFs continuam passando.
+
+- **21 — `finish_reason` (XS, antes de qualquer outro).** Toda resposta da API
+  de chat diz por que o modelo parou: `stop` (terminou), `length` (bateu em
+  `max_tokens`, 16.000) ou `content_filter`. O código lê só o `content`
+  (`structurer.py:837`) e joga o campo fora. JSON cortado normalmente nem
+  parseia, então um documento gravado com 14 de 15 faturas e JSON válido tem
+  duas explicações que o campo separa na primeira rodada: `length` com corte
+  em ponto parseável (truncamento, corrige chamando por grupo de páginas) ou
+  `stop` (o modelo escolheu devolver 14, ou fundiu duas; corrige no prompt ou
+  com uma chamada por fatura detectada). `length` vira problema ("resposta
+  truncada") e vai para revisão; o valor entra no `raw_extraction` sempre.
+  Tira o item 12 de hipótese e põe em diagnóstico.
+- **22 — Regressão contra o gabarito (M).** `check_gabarito.py`: lê o
+  `Gabarito_DocReader.xlsx` (38 linhas, 16 faturas) e os `raw` dos 28 PDFs,
+  roda o structurer 3 vezes sobre cada um e imprime acurácia por campo
+  (número, data, total, part number, quantidade, unitário, PO, incoterm,
+  landed) e por fornecedor, com a variância entre rodadas. É o
+  `check_structurer.py` generalizado: hoje ele faz isso para um documento, o
+  CIV, com 8 materiais. **O `raw` tem de vir da VM**, gerado pelo Document
+  Intelligence, como o `raw-civ-cap.json`: o Docling do modo local dá outro
+  texto e outra confiança por palavra, e a medida deixaria de valer para a
+  produção. O modelo é o mesmo via OpenRouter; com `temperature=0` já varia
+  entre rodadas, por isso três. Os 12 PDFs fora do gabarito rodam sem verdade
+  de referência, mas servem para a variância e para "não quebrou o que
+  passava". Roda antes e depois de cada leva, e o resultado entra no
+  `docs/sync-cat.md` da leva.
 
 ---
 

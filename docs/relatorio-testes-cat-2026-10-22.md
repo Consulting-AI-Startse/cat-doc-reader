@@ -185,7 +185,34 @@ então `5657043` nunca entra como candidato.
 3. **`raw_extraction` e PDF do FFAU5762790**, além do 2026RFM04632 (B12).
 4. Fabricante ausente (P12): segue sem resposta (pergunta 9).
 
+## Quão confiável é esta leva
+
+Alta confiança de que B16 a B20 resolvem o que está nos slides; confiança
+média de que o próximo relatório da CAT vem menor. Quatro razões, e duas
+viraram item:
+
+1. **Não existe linha de base medida.** O gabarito (38 linhas, 16 faturas)
+   nunca foi rodado como regressão; cada leva é validada por teste sintético
+   do caso do slide. Não dá para dizer se a leva 14 melhorou ou piorou a
+   acurácia global. → **B22.**
+2. **O padrão é reativo:** cliente acha documento novo, nasce regra nova. Os
+   itens que dependem de lista (B18, B19) envelhecem bem; os que dependem de
+   regex de texto (B16, B20) envelhecem mal.
+3. **Uma chamada só, documento inteiro, 16k tokens, sem ler
+   `finish_reason`.** É o ponto mais frágil e nenhum item o muda, exceto o
+   B12 se a hipótese do truncamento se confirmar. → **B21.**
+4. **Regra determinística só corrige o que o modelo devolveu.** Linha que o
+   modelo pulou não tem segunda chance; a soma acusa, mas é revisão, não
+   correção.
+
+Por item: B17 e B18 altas (critério objetivo, sem depender do modelo); B19
+média-alta; B16 média (assume que todo PO é `QIP?nnnnn`, visto em 28 PDFs,
+não confirmado); B20 média-baixa (rodapé é a parte menos padronizada da
+fatura, e metade do item é decisão); B12 desconhecida sem o `raw`.
+
 ## Ordem sugerida
 
-B17 e B18 (baratos, visíveis em todo documento); B16 e B19 (mesmo padrão da
-leva 15); B20 e B12 (dependem de resposta da CAT e de artefato).
+B21 (uma linha, decide o B12); B17 e B18 (baratos, visíveis em todo
+documento); B22 antes da próxima leva de código, para medir o antes; B16 e
+B19 (mesmo padrão da leva 15); B20 e B12 (dependem de resposta da CAT e de
+artefato).
