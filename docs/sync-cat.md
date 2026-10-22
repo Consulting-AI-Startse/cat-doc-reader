@@ -8,7 +8,9 @@ Existe porque os dois repos têm históricos independentes: sem este arquivo nã
 há como saber, olhando o git, o que já foi espelhado e o que ainda não foi.
 
 Formato de cada entrada: data, o que foi, como foi transportado, a branch e o
-estado do PR.
+estado do PR. Desde 22/10, cada entrada cita também os itens do backlog (`B12`),
+os PRs deste repo (`#7`) e o PR da CAT (`CAT#36`) -- ver a convenção no
+`CLAUDE.md`.
 
 ---
 

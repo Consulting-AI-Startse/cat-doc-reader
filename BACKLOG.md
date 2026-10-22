@@ -5,23 +5,29 @@ uma inversão deliberada (item 3), explicada abaixo.
 
 Esforço: **XS** < 1h · **S** ~meio dia · **M** ~1–2 dias · **L** ~1 semana
 
-| # | item | esforço | valor | depende |
-|---|---|---|---|---|
-| ~~1~~ | ~~Poison handler grava status `error`~~ | XS | alto | **feito** |
-| ~~2~~ | ~~`Unit` e `Unit Weight`~~ | S | médio | **feito** |
-| ~~3~~ | ~~Lista de PN: tabela, import CSV e checagem~~ | M | **muito alto** | **feito** |
-| ~~4~~ | ~~Serial Number~~ | M | alto | **feito** |
-| ~~5~~ | ~~Confiança por campo e geral~~ | M | alto | **feito** |
-| ~~6~~ | ~~Duplicatas por (invoice, fornecedor)~~ | M | médio | **feito** |
-| ~~7~~ | ~~Classificação invoice × packing list~~ | M | alto | **feito** |
-| ~~8~~ | ~~Relatório de confiança por fornecedor~~ | M | médio | **feito** |
-| ~~9~~ | ~~Métricas de processamento por período~~ | M | médio | **feito** |
-| ~~10~~ | ~~Aritmética da linha, linhas de encargo, frete/embalagem gravados~~ | M | **muito alto** | **feito** (leva 14) |
-| ~~11~~ | ~~Part number pela lista de PN: fornecedor × CAT, "fora da lista" na tela~~ | M | **muito alto** | **feito** (leva 15) |
-| 12 | **Leva 16:** documento com muitas faturas, fatura que falta | ? | alto | **bloqueado** (PDF e `raw_extraction` do 2026RFM04632) |
-| — | `Invoice Type`, `Import Process`, `CSAR`, `PFO`, `##` | ? | ? | **bloqueado** |
-| ~~—~~ | ~~Texto fora do alfabeto latino~~ | S | médio | **feito** |
-| — | Word/Excel | ? | ? | **escopo indefinido** |
+**Todo item tem número, e o número não muda** -- nem quando o item é feito,
+nem quando sai de ordem. A coluna `caminho` liga o item ao que o entregou:
+`B11` (o item) → `#4` (PR deste repo) → `L15` (a leva) → `CAT#35` (o PR do lado
+da CAT). A convenção está no `CLAUDE.md`. Os itens 1 a 9 e o 15 são de antes do
+PR neste repo (19/10) e ficam sem caminho.
+
+| # | item | esforço | valor | depende | caminho |
+|---|---|---|---|---|---|
+| ~~1~~ | ~~Poison handler grava status `error`~~ | XS | alto | **feito** | — |
+| ~~2~~ | ~~`Unit` e `Unit Weight`~~ | S | médio | **feito** | — |
+| ~~3~~ | ~~Lista de PN: tabela, import CSV e checagem~~ | M | **muito alto** | **feito** | — |
+| ~~4~~ | ~~Serial Number~~ | M | alto | **feito** | — |
+| ~~5~~ | ~~Confiança por campo e geral~~ | M | alto | **feito** | — |
+| ~~6~~ | ~~Duplicatas por (invoice, fornecedor)~~ | M | médio | **feito** | — |
+| ~~7~~ | ~~Classificação invoice × packing list~~ | M | alto | **feito** | — |
+| ~~8~~ | ~~Relatório de confiança por fornecedor~~ | M | médio | **feito** | — |
+| ~~9~~ | ~~Métricas de processamento por período~~ | M | médio | **feito** | — |
+| ~~10~~ | ~~Aritmética da linha, linhas de encargo, frete/embalagem gravados~~ | M | **muito alto** | **feito** (leva 14) | #2 → L14 → CAT#34 |
+| ~~11~~ | ~~Part number pela lista de PN: fornecedor × CAT, "fora da lista" na tela~~ | M | **muito alto** | **feito** (leva 15) | #4 → L15 → CAT#35 |
+| 12 | **Leva 16:** documento com muitas faturas, fatura que falta | ? | alto | **bloqueado** (PDF e `raw_extraction` do 2026RFM04632) | → L16 |
+| 13 | `Invoice Type`, `Import Process`, `CSAR`, `PFO`, `##` | ? | ? | **on hold** (desde 22/10; espera a CAT) | — |
+| 14 | Word/Excel | ? | ? | **escopo indefinido** | — |
+| ~~15~~ | ~~Texto fora do alfabeto latino~~ | S | médio | **feito** | — |
 
 **A inversão:** o item 3 é M, não S, mas vem antes do 5 porque a lista de PN é a
 fonte da verdade da validação e porque destrava o item 4 de graça.
@@ -475,7 +481,7 @@ hipótese até ser medida.
   Brasília (em UTC, upload das 22h caía no dia seguinte), e dia sem documento
   entra com zero, para a parada aparecer.
 
-## Texto fora do alfabeto latino — feito em 08/10
+## 15. Texto fora do alfabeto latino — feito em 08/10
 
 Decisão: **ignorar todo vocabulário não latino.** Eram duas coisas diferentes:
 
