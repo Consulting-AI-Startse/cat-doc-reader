@@ -28,6 +28,11 @@ PR neste repo (19/10) e ficam sem caminho.
 | 13 | `Invoice Type`, `Import Process`, `CSAR`, `PFO`, `##` | ? | ? | **on hold** (desde 22/10; espera a CAT) | — |
 | 14 | Word/Excel | ? | ? | **escopo indefinido** | — |
 | ~~15~~ | ~~Texto fora do alfabeto latino~~ | S | médio | **feito** | — |
+| 16 | PO: regra no prompt e resolução determinística (`QIP?nnnnn`) | S | alto | confirmar forma do PO com a CAT | — |
+| 17 | Número da fatura: rótulo genérico, aviso `CAT Invoice#` só quando importa | S | alto | — | — |
+| 18 | Linha sem valor (N/C) com forma de código não é item | S | alto | 3 (lista de PN) | — |
+| 19 | Sufixo do part number: gravar a base, decidir pela lista | M | alto | 3 (lista de PN); migração 0011 | — |
+| 20 | Encargos: valor de rodapé determinístico, texto de embalagem na invoice, decisão do rateio | M | alto | resposta da CAT sobre o rateio | — |
 
 **A inversão:** o item 3 é M, não S, mas vem antes do 5 porque a lista de PN é a
 fonte da verdade da validação e porque destrava o item 4 de graça.
@@ -549,6 +554,53 @@ o que falta, está em `docs/relatorio-testes-cat-2026-10.md`. Resumo:
   devolvidas. Se o truncamento se confirmar, a correção é chamar o modelo por
   grupo de páginas (o `pages.py` já dá os spans).
 
+## 16 a 20 — os testes oficiais da CAT (22/10)
+
+A segunda versão do relatório da CAT (25 slides, com a etapa de **testes
+oficiais a partir de 19/10**, já sobre as levas 14 e 15) confirma resolvidos
+os itens 5, 10 e 11 e traz cinco problemas sem item. A análise, erro a erro,
+está em `docs/relatorio-testes-cat-2026-10-22.md`. Todos seguem o princípio
+da leva 15: o prompt dá a direção, o código determinístico é o contrato, e a
+lista de PN liberados é o árbitro quando a forma do texto não basta.
+
+- **16 — PO (S).** `QIPP 068274` gravado como `068274`; três POs no cabeçalho
+  (`QIPP65000、QIPP65001、QIPP92629、`) e nenhum gravado; "Order Number /
+  Cust. PO" empilhados e o gravado foi o do fornecedor. O prompt não tem
+  regra nenhuma sobre PO e nada valida a forma. Regra no prompt
+  (`QIP?nnnnn`, rótulos, PO único do cabeçalho vale para as linhas) e
+  `_resolve_purchase_order` determinístico: recompõe prefixo, troca pelo
+  `QIP…` da mesma linha, preenche do cabeçalho quando é um só; vários sem
+  mapeamento → problema, nunca escolhe.
+- **17 — Número da fatura (S).** `DOCUMENT NO. 1270082320` não capturado
+  (lista fechada de rótulos na regra 1); e o aviso "'CAT Invoice#' nao
+  localizado" sai em todo documento sem o formato `AA00 000000` (10 dos 28 do
+  corpus) e força revisão mesmo com o número certo. Aviso vira nota quando o
+  modelo trouxe número localizado; rótulo `Document No.` aceito; fallback por
+  rótulo nas páginas de invoice; generaliza a contagem de rótulos do item 12.
+- **18 — Linha sem valor (S, depende do 3).** `0P-4349 INSTRUCTIONS N/C` e
+  afins têm forma CAT, e `cat` é blindado em três lugares (`_charge_kind`,
+  `sem_valor`, `kind and value`); `0` não é `None`. Valor zero **e** fora da
+  lista → descartada com motivo; valor zero **e** na lista → fica, com nota
+  "item sem cobrança". A soma não muda nos dois casos, por isso a lista é o
+  critério.
+- **19 — Sufixo do part number (M, depende do 3).** `5531000/S` gravado com
+  sufixo (a base é calculada mas não persistida) e o modelo ainda preenche
+  `supplier_part_number` com o mesmo código; `5657043-CBL` vira `other_code`
+  porque o sufixo só aceita `-NN`. Gravar a base, persistir
+  `part_number_suffix` (migração 0011), sufixo alfabético só quando a base
+  está na lista, descartar `supplier_part_number` e serial iguais ao próprio
+  código.
+- **20 — Encargos (M).** Frete e embalagem de rodapé dependem só do modelo;
+  o texto de embalagem é copiado para todas as linhas; e o cliente quer
+  encargo geral sem rateio, o que conflita com o gabarito (395,16 =
+  388,46 + 603/90). Varredura determinística do bloco de totais alimentando o
+  `_merge_charge`; texto de embalagem na invoice, não por linha; o rateio
+  espera a resposta da pergunta 8.
+
+Segundo caso do item 12: **CIV FFAU5762790, 10 de 18 faturas.** Reforça a
+hipótese do truncamento (18 faturas é mais JSON que 15). Pedir o
+`raw_extraction` dele também.
+
 ---
 
 ## Perguntas em aberto para a CAT
@@ -576,4 +628,9 @@ o que falta, está em `docs/relatorio-testes-cat-2026-10.md`. Resumo:
    ou substituir pelo rateado? E o divisor do rateio: unidade, valor ou peso?
 9. Fabricante ausente do documento (Carraro): vazio ou igual ao fornecedor,
    com nota?
-10. 2026RFM04632 (14 de 15 faturas): precisamos do PDF.
+10. 2026RFM04632 (14 de 15 faturas) e CIV FFAU5762790 (10 de 18): precisamos
+    do PDF e do `raw_extraction` dos dois.
+11. **Todo PO Caterpillar é `QIP?` + dígitos?** Nos 28 PDFs são `QIPP`, `QIPD`
+    e `QIPC`. Define o item 16.
+12. Rateio, de novo (pergunta 8): o usuário disse em 19/10 que encargo fora da
+    linha "é geral", mas o gabarito pede rateado. Qual vale? Define o item 20.

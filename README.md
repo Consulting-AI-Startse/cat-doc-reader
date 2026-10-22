@@ -113,8 +113,9 @@ até alguém rodar isso.
 
 - Próximas features, ponderadas: `BACKLOG.md`
 - O que já foi espelhado para o repo da CAT: `docs/sync-cat.md`
-- Relatório de testes da CAT (out/2026), erro a erro, e o plano de correção:
-  `docs/relatorio-testes-cat-2026-10.md`
+- Relatórios de testes da CAT (out/2026), erro a erro, e o plano de correção:
+  `docs/relatorio-testes-cat-2026-10.md` (19/10, levas 14 a 16) e
+  `docs/relatorio-testes-cat-2026-10-22.md` (testes oficiais, itens 16 a 20)
 - Deploy de codigo e o workflow `app-deploy.yml` (push na `main` da CAT ou
   dispatch manual). `DEPLOY.md` e o roteiro do que o workflow nao faz:
   migracao de schema pelo webssh, privilegios das Managed Identities, rede.
