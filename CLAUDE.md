@@ -168,6 +168,27 @@ abrir:
 O PR do lado da CAT continua sendo do Luis (passo 5): a leva sai do merge aqui.
 Os guardrails automaticos estao em `.claude/hooks/` (ver o README de la).
 
+### Os numeros que ligam item, PR e leva (decidido em 22/10)
+
+Quatro sequencias, cada uma com o seu prefixo, porque `#35` sozinho nao diz
+de que repo e:
+
+| prefixo | o que e | onde mora |
+|---|---|---|
+| `B12` | item do `BACKLOG.md` | numero fixo, nunca reaproveitado nem renumerado |
+| `#7` | issue ou PR deste repo | o GitHub numera os dois no mesmo contador |
+| `L16` | leva | `docs/sync-cat.md` |
+| `CAT#36` | PR do lado da CAT | aberto pelo Luis |
+
+- **Todo item do backlog tem numero**, inclusive o que esta on hold ou fora de
+  ordem. A coluna `caminho` da tabela registra a cadeia: `#4 → L15 → CAT#35`.
+- **Titulo de PR e mensagem de commit citam o `B`** do item que avancam.
+- **Cada entrada do `sync-cat.md` cita os `B` e os `#`** que a leva levou, e o
+  `CAT#` quando o PR de la for aberto.
+- **Issue e opcional.** O item do backlog ja faz o papel dela. Abra issue so
+  para quebrar um item grande (uma por hipotese, por exemplo) ou para um
+  defeito que ainda nao virou item.
+
 ### Leva para a CAT: o que nao se negocia
 
 O passo a passo de montar a leva (o que entregar, script autocontido,
