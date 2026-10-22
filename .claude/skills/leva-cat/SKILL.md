@@ -149,6 +149,25 @@ O barato é inverter a ordem: **antes de montar o pacote, peça os blobs da VM**
 com o que voltou. Um comando, uma resposta, e a conferência passa a valer
 alguma coisa — prevista, ela só testa a nossa suposição contra ela mesma.
 
+**Mas o blob que a VM reporta pode ser de uma `main` velha.** A org
+`caterpillar-inc` exige SAML SSO; quando a autorização do Git Credential
+Manager expira, o `git fetch` leva 403 e o `origin/main` local fica onde
+estava, sem que `rev-parse` ou `ls-tree` acusem nada. Enganou duas levas: a
+11 viu a base da 10, e a 12 viu a da 10 com a 11 já merjada. Por isso o
+pedido de blobs começa perguntando ao servidor, não à referência local:
+
+```powershell
+git ls-remote origin refs/heads/main   # tem de imprimir um hash, nao 403
+git fetch origin
+git rev-parse origin/main              # tem de ser o mesmo hash
+git ls-tree -r origin/main > "$env:USERPROFILE\Downloads\blobs-levaN.txt"
+```
+
+Se o `ls-remote` der 403: `cmdkey /delete:git:https://github.com` e rodar de
+novo, que abre o login no navegador e passa pelo SSO. E peça a árvore
+inteira, não só os arquivos da leva — é o que acha arquivo nunca espelhado.
+O `>` do PowerShell 5.1 grava em UTF-16; converta antes de ler.
+
 O SHA-256 continua valendo para o `.b64` e o `.zip` — ali o que se confere é o
 transporte, byte a byte, e não há checkout no meio.
 
